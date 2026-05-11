@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 *.db
 .DS_Store
+*.log
+node_modules/
+dist/
+.agents/
+skills-lock.json
+s

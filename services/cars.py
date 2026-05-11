@@ -1,0 +1,223 @@
+import httpx
+import logging
+from datetime import date
+from core.config import settings
+
+logger = logging.getLogger(__name__)
+
+PRECIO_REFERENCIA_COCHE: dict[str, float] = {
+    "BOG": 35,  "MDE": 30,  "CLO": 28,  "CTG": 40,  "BAQ": 32,
+    "MIA": 45,  "CUN": 38,  "MEX": 40,  "GDL": 35,  "LIM": 30,
+    "GYE": 25,  "UIO": 28,  "SCL": 35,  "EZE": 40,  "GRU": 38,
+    "SDQ": 35,  "HAV": 40,  "PTY": 32,  "SJO": 30,
+    "JFK": 50,  "LAX": 48,  "ORD": 42,  "MCO": 40,  "LAS": 38,
+    "SFO": 48,  "BOS": 45,  "WAS": 42,  "ATL": 38,
+    "MAD": 35,  "BCN": 35,  "LHR": 50,  "CDG": 48,  "FCO": 40,
+    "AMS": 45,  "FRA": 42,  "LIS": 30,  "VIE": 38,  "ZRH": 50,
+    "_default": 35,
+}
+
+CITY_COORDS: dict[str, tuple[float, float]] = {
+    "BOG": (4.7110, -74.0721),
+    "MDE": (6.1646, -75.4225),
+    "CLO": (3.5432, -76.4993),
+    "CTG": (10.3910, -75.5144),
+    "BAQ": (10.8891, -74.7762),
+    "MIA": (25.7617, -80.1918),
+    "CUN": (21.1619, -86.8515),
+    "MEX": (19.4326, -99.1332),
+    "GDL": (20.6597, -103.3496),
+    "LIM": (-12.0464, -77.0428),
+    "GYE": (-2.2037, -79.8972),
+    "UIO": (-0.1807, -78.4678),
+    "SCL": (-33.4489, -70.6693),
+    "EZE": (-34.8222, -58.5358),
+    "GRU": (-23.5505, -46.6333),
+    "SDQ": (18.4861, -69.9312),
+    "HAV": (23.1136, -82.3666),
+    "PTY": (8.9824, -79.5199),
+    "SJO": (9.9281, -84.0907),
+    "JFK": (40.7128, -74.0060),
+    "LAX": (34.0522, -118.2437),
+    "ORD": (41.8781, -87.6298),
+    "MCO": (28.5383, -81.3792),
+    "LAS": (36.1699, -115.1398),
+    "SFO": (37.7749, -122.4194),
+    "BOS": (42.3601, -71.0589),
+    "WAS": (38.9072, -77.0369),
+    "ATL": (33.7490, -84.3880),
+    "MAD": (40.4168, -3.7038),
+    "BCN": (41.3874, 2.1686),
+    "LHR": (51.5074, -0.1278),
+    "CDG": (48.8566, 2.3522),
+    "FCO": (41.9028, 12.4964),
+    "AMS": (52.3676, 4.9041),
+    "FRA": (50.1109, 8.6821),
+    "LIS": (38.7223, -9.1393),
+    "VIE": (48.2082, 16.3738),
+    "ZRH": (47.3769, 8.5417),
+    "_default": (40.7128, -74.0060),
+}
+
+
+def _get_coords(iata: str) -> tuple[float, float]:
+    return CITY_COORDS.get(iata.upper(), CITY_COORDS["_default"])
+
+
+def _precio_coche_referencia(iata: str) -> float:
+    return PRECIO_REFERENCIA_COCHE.get(iata.upper(), PRECIO_REFERENCIA_COCHE["_default"])
+
+
+def _calcular_dias(pickup_date: str | None, dropoff_date: str | None) -> int:
+    if pickup_date and dropoff_date:
+        return max((date.fromisoformat(dropoff_date) - date.fromisoformat(pickup_date)).days, 1)
+    return 7
+
+
+def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | None) -> dict:
+    dias = _calcular_dias(pickup_date, dropoff_date)
+    precio_dia = _precio_coche_referencia(iata)
+    precio_total = round(precio_dia * dias, 2)
+
+    coches = [
+        {
+            "nombre": "Económico",
+            "tipo": "Económico",
+            "transmision": "Manual",
+            "pasajeros": 4,
+            "maletas": 2,
+            "precio_total": round(precio_total * 0.8, 2),
+            "moneda": "USD",
+            "proveedor": "Local",
+            "link_reserva": "",
+            "foto_url": "",
+        },
+        {
+            "nombre": "Compacto",
+            "tipo": "Compacto",
+            "transmision": "Automática",
+            "pasajeros": 5,
+            "maletas": 3,
+            "precio_total": precio_total,
+            "moneda": "USD",
+            "proveedor": "Local",
+            "link_reserva": "",
+            "foto_url": "",
+        },
+        {
+            "nombre": "SUV",
+            "tipo": "SUV",
+            "transmision": "Automática",
+            "pasajeros": 5,
+            "maletas": 4,
+            "precio_total": round(precio_total * 1.5, 2),
+            "moneda": "USD",
+            "proveedor": "Local",
+            "link_reserva": "",
+            "foto_url": "",
+        },
+        {
+            "nombre": "Familiar",
+            "tipo": "Familiar",
+            "transmision": "Automática",
+            "pasajeros": 7,
+            "maletas": 5,
+            "precio_total": round(precio_total * 2.0, 2),
+            "moneda": "USD",
+            "proveedor": "Local",
+            "link_reserva": "",
+            "foto_url": "",
+        },
+    ]
+    return {
+        "ciudad": iata,
+        "coches": coches,
+        "aviso": "Precios estimados basados en tarifas promedio de la zona.",
+    }
+
+
+async def buscar_coches(
+    iata: str,
+    pickup_date: str | None = None,
+    dropoff_date: str | None = None,
+    pickup_time: str = "10:00",
+    dropoff_time: str = "10:00",
+    driver_age: int = 30,
+    currency: str = "USD",
+) -> dict:
+    lat, lng = _get_coords(iata)
+
+    params: dict = {
+        "pick_up_latitude": str(lat),
+        "pick_up_longitude": str(lng),
+        "drop_off_latitude": str(lat),
+        "drop_off_longitude": str(lng),
+        "pick_up_time": pickup_time,
+        "drop_off_time": dropoff_time,
+        "driver_age": str(driver_age),
+        "currency_code": currency,
+        "location": iata,
+    }
+    if pickup_date:
+        params["pick_up_date"] = pickup_date
+    if dropoff_date:
+        params["drop_off_date"] = dropoff_date
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            res = await client.get(
+                "https://booking-com15.p.rapidapi.com/api/v1/cars/searchCarRentals",
+                params=params,
+                headers={
+                    "x-rapidapi-key": settings.rapidapi_key,
+                    "x-rapidapi-host": settings.rapidapi_host,
+                    "Content-Type": "application/json",
+                },
+            )
+            res.raise_for_status()
+            data = res.json()
+
+            if isinstance(data, dict) and data.get("status") is False:
+                logger.warning(f"RapidAPI coches devolvió status=false para '{iata}': {data.get('message', '')}")
+                return _generar_fallback(iata, pickup_date, dropoff_date)
+
+            coches = []
+            results = []
+            if isinstance(data, list):
+                results = data
+            elif isinstance(data, dict):
+                results = data.get("data", data.get("results", []))
+
+            if not results:
+                return _generar_fallback(iata, pickup_date, dropoff_date)
+
+            for c in results:
+                precio = float(c.get("price", c.get("total_price", 0)))
+                coches.append({
+                    "nombre": c.get("name", c.get("vehicle_name", "Coche")),
+                    "tipo": c.get("type", c.get("vehicle_type", "")),
+                    "transmision": c.get("transmission", c.get("transmission_type", "")),
+                    "pasajeros": c.get("seats", c.get("passengers", 4)),
+                    "maletas": c.get("bags", c.get("suitcases", 2)),
+                    "precio_total": precio,
+                    "moneda": c.get("currency", currency),
+                    "proveedor": c.get("provider", c.get("supplier", {}).get("name", "")),
+                    "link_reserva": c.get("deep_link", c.get("link", "")),
+                    "foto_url": c.get("image", c.get("photo_url", "")),
+                })
+
+            return {
+                "ciudad": iata,
+                "coches": sorted(coches, key=lambda x: x["precio_total"]),
+                "aviso": None,
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error HTTP coches: {e.response.status_code} - {e.response.text}")
+            return _generar_fallback(iata, pickup_date, dropoff_date)
+        except httpx.RequestError as e:
+            logger.error(f"Error de conexión coches: {e}")
+            return _generar_fallback(iata, pickup_date, dropoff_date)
+        except Exception as e:
+            logger.error(f"Error inesperado en buscar_coches: {e}")
+            return _generar_fallback(iata, pickup_date, dropoff_date)
