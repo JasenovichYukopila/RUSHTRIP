@@ -1,0 +1,11 @@
+services:
+  rushtrip:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - CORS_ORIGINS=https://midominio.com
+      - DEBUG=false
+    restart: unless-stopped

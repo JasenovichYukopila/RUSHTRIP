@@ -1,17 +1,23 @@
+import { useState } from 'react';
+
 export default function HotelCard({ hotel }) {
   if (!hotel) return null;
+
+  const [imgError, setImgError] = useState(false);
 
   const stars = hotel.estrellas || 0;
   const rating = hotel.rating || 0;
 
+  const showImg = hotel.foto_url && !imgError;
+
   return (
     <div className="flex items-start gap-4 p-4 bg-card rounded-lg border border-border card-shadow">
-      {hotel.foto_url ? (
+      {showImg ? (
         <img
           src={hotel.foto_url}
           alt={hotel.nombre}
           className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-          onError={(e) => { e.target.style.display = 'none'; }}
+          onError={() => setImgError(true)}
         />
       ) : (
         <div className="w-16 h-16 rounded-lg bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
@@ -36,7 +42,9 @@ export default function HotelCard({ hotel }) {
             </span>
           )}
           {rating > 0 && (
-            <span className="text-xs text-muted">{Number(rating).toFixed(1)}</span>
+            <span className="text-xs text-muted">
+              {[hotel.reviewScoreWord, Number(rating).toFixed(1), hotel.reviewCount ? `${Number(hotel.reviewCount).toLocaleString('es')} opiniones` : ''].filter(Boolean).join(' · ')}
+            </span>
           )}
         </div>
         {hotel.precio_noche > 0 && (

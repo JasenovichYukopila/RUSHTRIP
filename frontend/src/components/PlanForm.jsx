@@ -32,6 +32,9 @@ export default function PlanForm({ onSubmit, loading }) {
     fecha_regreso: nextWeekPlus(7),
   });
   const [errors, setErrors] = useState({});
+  const [incluirHotel, setIncluirHotel] = useState(true);
+  const [incluirVehiculo, setIncluirVehiculo] = useState(false);
+  const [tier, setTier] = useState('estandar');
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -74,6 +77,9 @@ export default function PlanForm({ onSubmit, loading }) {
       fecha_regreso: form.fecha_regreso,
       presupuesto: parseFloat(form.presupuesto),
       pasajeros: parseInt(form.pasajeros, 10),
+      incluir_hotel: incluirHotel,
+      incluir_vehiculo: incluirVehiculo,
+      tier,
     });
   }
 
@@ -90,7 +96,7 @@ export default function PlanForm({ onSubmit, loading }) {
     <form onSubmit={handleSubmit} className="bg-surface rounded-xl card-shadow border border-border p-6 sm:p-8">
       <div className="text-center sm:text-left mb-8">
         <h2 className="font-display text-2xl sm:text-3xl text-text">
-          Arma tu viaje
+          Tus datos de viaje
         </h2>
         <p className="text-muted text-sm mt-1">
           Completa los datos y te mostraremos el mejor plan para tu presupuesto.
@@ -121,6 +127,71 @@ export default function PlanForm({ onSubmit, loading }) {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="mt-6 pt-6 border-t border-border">
+        <p className="text-sm font-medium text-text mb-3">Estilo de viaje</p>
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { key: 'economico', label: '💚 Económico' },
+            { key: 'estandar', label: '🔵 Estándar' },
+            { key: 'premium', label: '🟡 Premium' },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setTier(opt.key)}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                tier === opt.key
+                  ? 'bg-accent text-white border-accent'
+                  : 'bg-card text-text border-border hover:bg-accent/5'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-sm font-medium text-text mb-3">¿Qué incluir en tu plan?</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled
+            title="Los vuelos siempre están incluidos en el plan"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all duration-200 bg-accent/10 text-accent border-accent/20 opacity-60 cursor-not-allowed"
+          >
+            <span className="w-3 h-3 rounded-full bg-accent border-2 border-accent" />
+            ✈ Vuelo
+          </button>
+          <button
+            type="button"
+            onClick={() => setIncluirHotel(!incluirHotel)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-accent/5 ${
+              incluirHotel
+                ? 'bg-accent/10 text-accent border-accent/20'
+                : 'bg-card text-muted border-border'
+            }`}
+          >
+            <span className={`w-3 h-3 rounded-full border-2 transition-colors ${
+              incluirHotel ? 'bg-accent border-accent' : 'bg-transparent border-muted'
+            }`} />
+            🏨 Hotel
+          </button>
+          <button
+            type="button"
+            onClick={() => setIncluirVehiculo(!incluirVehiculo)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-accent/5 ${
+              incluirVehiculo
+                ? 'bg-accent/10 text-accent border-accent/20'
+                : 'bg-card text-muted border-border'
+            }`}
+          >
+            <span className={`w-3 h-3 rounded-full border-2 transition-colors ${
+              incluirVehiculo ? 'bg-accent border-accent' : 'bg-transparent border-muted'
+            }`} />
+            🚗 Vehículo
+          </button>
+        </div>
       </div>
 
       <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">

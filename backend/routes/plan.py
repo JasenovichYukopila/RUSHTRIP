@@ -1,10 +1,16 @@
-# api/routes/plan.py
+# backend/routes/plan.py
+# API endpoint para generar planes de viaje optimizados por presupuesto
+# Endpoint principal de RushTrip que combina todos los servicios
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from services.plan import generar_plan
 from datetime import datetime
 import re
 
+# Router para endpoints de plan de viaje
+# Prefix: /plan
+# Tags: Plan de viaje (para documentación OpenAPI)
 router = APIRouter(
     prefix="/plan",
     tags=["Plan de viaje"],
@@ -13,6 +19,17 @@ router = APIRouter(
 
 
 class PlanRequest(BaseModel):
+    """
+    Modelo de request para crear un plan de viaje.
+
+    Attributes:
+        origen: Código IATA del aeropuerto de origen (ej: BOG)
+        destino: Código IATA del aeropuerto de destino (ej: MIA)
+        fecha_salida: Fecha de salida en formato YYYY-MM-DD
+        fecha_regreso: Fecha de regreso en formato YYYY-MM-DD
+        presupuesto: Presupuesto total en USD
+        pasajeros: Número de pasajeros (1-9)
+    """
     origen:        str   = Field(..., min_length=3, max_length=3, description="Código IATA origen (ej: BOG)")
     destino:       str   = Field(..., min_length=3, max_length=3, description="Código IATA destino (ej: MIA)")
     fecha_salida:  str   = Field(..., description="Fecha de salida YYYY-MM-DD")
@@ -23,11 +40,13 @@ class PlanRequest(BaseModel):
     @field_validator("origen", "destino")
     @classmethod
     def iata_upper(cls, v: str) -> str:
+        """Convierte códigos IATA a mayúsculas y elimina espacios."""
         return v.upper().strip()
 
     @field_validator("fecha_salida", "fecha_regreso")
     @classmethod
     def validar_fecha(cls, v: str) -> str:
+        """Valida que las fechas tengan formato YYYY-MM-DD y sean válidas."""
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
             raise ValueError("Formato de fecha inválido. Use YYYY-MM-DD")
         try:
@@ -78,6 +97,15 @@ class PlanRequest(BaseModel):
 async def crear_plan(body: PlanRequest):
     """
     Endpoint principal de RushTrip: genera un plan de viaje por presupuesto.
+
+    Args:
+        body: Objeto PlanRequest con los parámetros del viaje
+
+    Returns:
+        Dict con plan_optimo, alternativas, hoteles, coches, aviso y precision
+
+    Raises:
+        HTTPException 422: Si las fechas son inválidas o el rango es muy largo
     """
     # Validar que las fechas sean coherentes
     salida  = datetime.strptime(body.fecha_salida,  "%Y-%m-%d")
@@ -95,12 +123,14 @@ async def crear_plan(body: PlanRequest):
             detail="El rango entre salida y regreso no puede superar 30 días."
         )
 
+    # Validar que origen y destino sean diferentes
     if body.origen == body.destino:
         raise HTTPException(
             status_code=422,
             detail="El origen y el destino no pueden ser la misma ciudad."
         )
 
+    # Generar el plan de viaje usando el servicio
     resultado = await generar_plan(
         origen=        body.origen,
         destino=       body.destino,

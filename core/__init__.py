@@ -1,4 +1,3 @@
-from .logging import setup_logging
-
-# Configurar logging al importar el módulo
-setup_logging()
+# core/__init__.py
+# Paquete de utilidades core de RushTrip
+# Contiene configuración, HTTP client y caching

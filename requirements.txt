@@ -1,7 +1,10 @@
-fastapi
-uvicorn
-httpx
-pydantic
-pydantic-settings
-python-multipart
-loguru
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+httpx==0.28.1
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-multipart==0.0.20
+loguru==0.7.3
+aiofiles==24.1.0
+mangum==0.17.0

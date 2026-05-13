@@ -1,22 +1,36 @@
+# services/cars.py
+# Servicio de búsqueda de alquiler de coches via RapidAPI (Booking.com)
+# Incluye fallback con precios estimados si la API falla
+
 import httpx
 import logging
 from datetime import date
 from core.config import settings
+from core.http import http_client
 
 logger = logging.getLogger(__name__)
 
+# Precios de referencia por día en USD según código IATA de la ciudad
+# Usados como fallback cuando la API no responde
 PRECIO_REFERENCIA_COCHE: dict[str, float] = {
+    # Colombia
     "BOG": 35,  "MDE": 30,  "CLO": 28,  "CTG": 40,  "BAQ": 32,
+    # México y Centroamérica
     "MIA": 45,  "CUN": 38,  "MEX": 40,  "GDL": 35,  "LIM": 30,
+    # Sudamérica
     "GYE": 25,  "UIO": 28,  "SCL": 35,  "EZE": 40,  "GRU": 38,
     "SDQ": 35,  "HAV": 40,  "PTY": 32,  "SJO": 30,
+    # Estados Unidos
     "JFK": 50,  "LAX": 48,  "ORD": 42,  "MCO": 40,  "LAS": 38,
     "SFO": 48,  "BOS": 45,  "WAS": 42,  "ATL": 38,
+    # Europa
     "MAD": 35,  "BCN": 35,  "LHR": 50,  "CDG": 48,  "FCO": 40,
     "AMS": 45,  "FRA": 42,  "LIS": 30,  "VIE": 38,  "ZRH": 50,
-    "_default": 35,
+    "_default": 35,  # Precio por defecto si no está la ciudad
 }
 
+# Coordenadas (lat, lng) de las principales ciudades para búsquedas
+# Booking.com requiere coordenadas para buscar coches
 CITY_COORDS: dict[str, tuple[float, float]] = {
     "BOG": (4.7110, -74.0721),
     "MDE": (6.1646, -75.4225),
@@ -56,29 +70,37 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "LIS": (38.7223, -9.1393),
     "VIE": (48.2082, 16.3738),
     "ZRH": (47.3769, 8.5417),
-    "_default": (40.7128, -74.0060),
+    "_default": (40.7128, -74.0060),  # NYC por defecto
 }
 
 
 def _get_coords(iata: str) -> tuple[float, float]:
+    """Obtiene coordenadas (lat, lng) para un código IATA de ciudad."""
     return CITY_COORDS.get(iata.upper(), CITY_COORDS["_default"])
 
 
 def _precio_coche_referencia(iata: str) -> float:
+    """Obtiene el precio de referencia por día para una ciudad."""
     return PRECIO_REFERENCIA_COCHE.get(iata.upper(), PRECIO_REFERENCIA_COCHE["_default"])
 
 
 def _calcular_dias(pickup_date: str | None, dropoff_date: str | None) -> int:
+    """Calcula el número de días de alquiler. Mínimo 1 día."""
     if pickup_date and dropoff_date:
         return max((date.fromisoformat(dropoff_date) - date.fromisoformat(pickup_date)).days, 1)
-    return 7
+    return 7  # Por defecto 7 días
 
 
 def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | None) -> dict:
+    """
+    Genera datos de fallback con precios estimados cuando la API falla.
+    Incluye 4 categorías de vehículos con precios relativos.
+    """
     dias = _calcular_dias(pickup_date, dropoff_date)
     precio_dia = _precio_coche_referencia(iata)
     precio_total = round(precio_dia * dias, 2)
 
+    # Catálogo de vehículos predefinidos con precios escalados
     coches = [
         {
             "nombre": "Económico",
@@ -86,10 +108,10 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "transmision": "Manual",
             "pasajeros": 4,
             "maletas": 2,
-            "precio_total": round(precio_total * 0.8, 2),
+            "precio_total": round(precio_total * 0.8, 2),  # 20% más barato
             "moneda": "USD",
             "proveedor": "Local",
-            "link_reserva": "",
+            "link_reserva": "",  # Sin link porque son datos estimados
             "foto_url": "",
         },
         {
@@ -98,7 +120,7 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "transmision": "Automática",
             "pasajeros": 5,
             "maletas": 3,
-            "precio_total": precio_total,
+            "precio_total": precio_total,  # Precio base
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": "",
@@ -110,7 +132,7 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "transmision": "Automática",
             "pasajeros": 5,
             "maletas": 4,
-            "precio_total": round(precio_total * 1.5, 2),
+            "precio_total": round(precio_total * 1.5, 2),  # 50% más caro
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": "",
@@ -122,7 +144,7 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "transmision": "Automática",
             "pasajeros": 7,
             "maletas": 5,
-            "precio_total": round(precio_total * 2.0, 2),
+            "precio_total": round(precio_total * 2.0, 2),  # 100% más caro
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": "",
@@ -145,8 +167,25 @@ async def buscar_coches(
     driver_age: int = 30,
     currency: str = "USD",
 ) -> dict:
+    """
+    Busca opciones de alquiler de coches en una ciudad.
+
+    Args:
+        iata: Código IATA de la ciudad de recogida/devolución
+        pickup_date: Fecha de recogida (YYYY-MM-DD)
+        dropoff_date: Fecha de devolución (YYYY-MM-DD)
+        pickup_time: Hora de recogida (HH:MM)
+        dropoff_time: Hora de devolución (HH:MM)
+        driver_age: Edad del conductor principal
+        currency: Moneda del precio (USD, EUR, etc.)
+
+    Returns:
+        Dict con 'ciudad', 'coches' (lista) y 'aviso' (str|None)
+    """
+    # Obtener coordenadas para la búsqueda
     lat, lng = _get_coords(iata)
 
+    # Parámetros para la API de RapidAPI/Booking.com
     params: dict = {
         "pick_up_latitude": str(lat),
         "pick_up_longitude": str(lng),
@@ -163,61 +202,65 @@ async def buscar_coches(
     if dropoff_date:
         params["drop_off_date"] = dropoff_date
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            res = await client.get(
-                "https://booking-com15.p.rapidapi.com/api/v1/cars/searchCarRentals",
-                params=params,
-                headers={
-                    "x-rapidapi-key": settings.rapidapi_key,
-                    "x-rapidapi-host": settings.rapidapi_host,
-                    "Content-Type": "application/json",
-                },
-            )
-            res.raise_for_status()
-            data = res.json()
+    try:
+        # Llamada a la API de Booking.com via RapidAPI
+        res = await http_client.get(
+            "https://booking-com15.p.rapidapi.com/api/v1/cars/searchCarRentals",
+            params=params,
+            headers={
+                "x-rapidapi-key": settings.rapidapi_key,
+                "x-rapidapi-host": settings.rapidapi_host,
+                "Content-Type": "application/json",
+            },
+        )
+        res.raise_for_status()
+        data = res.json()
 
-            if isinstance(data, dict) and data.get("status") is False:
-                logger.warning(f"RapidAPI coches devolvió status=false para '{iata}': {data.get('message', '')}")
-                return _generar_fallback(iata, pickup_date, dropoff_date)
-
-            coches = []
-            results = []
-            if isinstance(data, list):
-                results = data
-            elif isinstance(data, dict):
-                results = data.get("data", data.get("results", []))
-
-            if not results:
-                return _generar_fallback(iata, pickup_date, dropoff_date)
-
-            for c in results:
-                precio = float(c.get("price", c.get("total_price", 0)))
-                coches.append({
-                    "nombre": c.get("name", c.get("vehicle_name", "Coche")),
-                    "tipo": c.get("type", c.get("vehicle_type", "")),
-                    "transmision": c.get("transmission", c.get("transmission_type", "")),
-                    "pasajeros": c.get("seats", c.get("passengers", 4)),
-                    "maletas": c.get("bags", c.get("suitcases", 2)),
-                    "precio_total": precio,
-                    "moneda": c.get("currency", currency),
-                    "proveedor": c.get("provider", c.get("supplier", {}).get("name", "")),
-                    "link_reserva": c.get("deep_link", c.get("link", "")),
-                    "foto_url": c.get("image", c.get("photo_url", "")),
-                })
-
-            return {
-                "ciudad": iata,
-                "coches": sorted(coches, key=lambda x: x["precio_total"]),
-                "aviso": None,
-            }
-
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Error HTTP coches: {e.response.status_code} - {e.response.text}")
+        # Si la API devuelve error, usar fallback
+        if isinstance(data, dict) and data.get("status") is False:
+            logger.warning(f"RapidAPI coches devolvió status=false para '{iata}': {data.get('message', '')}")
             return _generar_fallback(iata, pickup_date, dropoff_date)
-        except httpx.RequestError as e:
-            logger.error(f"Error de conexión coches: {e}")
+
+        # Extraer resultados de diferentes formatos posibles
+        coches = []
+        results = []
+        if isinstance(data, list):
+            results = data
+        elif isinstance(data, dict):
+            results = data.get("data", data.get("results", []))
+
+        # Si no hay resultados, usar fallback
+        if not results:
             return _generar_fallback(iata, pickup_date, dropoff_date)
-        except Exception as e:
-            logger.error(f"Error inesperado en buscar_coches: {e}")
-            return _generar_fallback(iata, pickup_date, dropoff_date)
+
+        # Transformar datos de la API al formato unificado
+        for c in results:
+            precio = float(c.get("price", c.get("total_price", 0)))
+            coches.append({
+                "nombre": c.get("name", c.get("vehicle_name", "Coche")),
+                "tipo": c.get("type", c.get("vehicle_type", "")),
+                "transmision": c.get("transmission", c.get("transmission_type", "")),
+                "pasajeros": c.get("seats", c.get("passengers", 4)),
+                "maletas": c.get("bags", c.get("suitcases", 2)),
+                "precio_total": precio,
+                "moneda": c.get("currency", currency),
+                "proveedor": c.get("provider", c.get("supplier", {}).get("name", "")),
+                "link_reserva": c.get("deep_link", c.get("link", "")),
+                "foto_url": c.get("image", c.get("photo_url", "")),
+            })
+
+        return {
+            "ciudad": iata,
+            "coches": sorted(coches, key=lambda x: x["precio_total"]),  # Ordenar por precio
+            "aviso": None,
+        }
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error HTTP coches: {e.response.status_code} - {e.response.text}")
+        return _generar_fallback(iata, pickup_date, dropoff_date)
+    except httpx.RequestError as e:
+        logger.error(f"Error de conexión coches: {e}")
+        return _generar_fallback(iata, pickup_date, dropoff_date)
+    except Exception as e:
+        logger.error(f"Error inesperado en buscar_coches: {e}")
+        return _generar_fallback(iata, pickup_date, dropoff_date)

@@ -37,6 +37,9 @@ export default function FlightCard({ vuelo, variant = 'default' }) {
           <p className="text-sm font-medium text-text truncate">
             {vuelo.aerolinea_nombre}
           </p>
+          {vuelo.descripcion && (
+            <p className="text-xs text-muted truncate">{vuelo.descripcion}</p>
+          )}
           <p className="text-xs text-muted">
             {formatDate(vuelo.salida)} — {escalasText}
           </p>
@@ -64,6 +67,9 @@ export default function FlightCard({ vuelo, variant = 'default' }) {
         <p className="font-medium text-text">
           {vuelo.aerolinea_nombre}
         </p>
+        {vuelo.descripcion && (
+          <p className="text-xs text-muted mt-0.5">{vuelo.descripcion}</p>
+        )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm text-muted">
           <span>Salida: {formatDate(vuelo.salida)}</span>
           {vuelo.regreso && <span>Regreso: {formatDate(vuelo.regreso)}</span>}
