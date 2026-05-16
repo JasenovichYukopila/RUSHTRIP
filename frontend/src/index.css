@@ -40,6 +40,120 @@ body::after {
   .stagger-4 { animation-delay: 450ms; }
   .stagger-5 { animation-delay: 600ms; }
   .stagger-6 { animation-delay: 750ms; }
+
+  /* Scroll-reveal: invisible until in viewport */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Stagger children on scroll reveal */
+  .reveal-stagger > *:nth-child(1) { transition-delay: 0ms; }
+  .reveal-stagger > *:nth-child(2) { transition-delay: 120ms; }
+  .reveal-stagger > *:nth-child(3) { transition-delay: 240ms; }
+  .reveal-stagger > *:nth-child(4) { transition-delay: 360ms; }
+  .reveal-stagger > *:nth-child(5) { transition-delay: 480ms; }
+  .reveal-stagger > *:nth-child(6) { transition-delay: 600ms; }
+
+  /* Hover lift effect */
+  .hover-lift {
+    transition: transform 0.3s ease-out, box-shadow 0.3s ease-out;
+  }
+  .hover-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(232, 97, 26, 0.12);
+  }
+
+  /* Floating particles */
+  .float-particle {
+    animation: floatUp 8s ease-in-out infinite;
+  }
+  .float-particle:nth-child(2) { animation-delay: 2s; animation-duration: 10s; }
+  .float-particle:nth-child(3) { animation-delay: 4s; animation-duration: 7s; }
+  .float-particle:nth-child(4) { animation-delay: 1s; animation-duration: 9s; }
+  .float-particle:nth-child(5) { animation-delay: 3s; animation-duration: 11s; }
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) translateX(0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateY(-40vh) translateX(10px) scale(1.2);
+    opacity: 0.15;
+  }
+  90% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(-80vh) translateX(-10px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+@keyframes drawLine {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) translateY(10px);
+  }
+  70% {
+    transform: scale(1.05) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes gentlePulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes flyPlane {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-flyPlane {
+  animation: flyPlane 2s ease-in-out infinite;
 }
 
 @layer components {
@@ -55,17 +169,32 @@ body::after {
            focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent
            transition-all duration-200;
   }
+  .input-field:focus {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 4px rgba(232, 97, 26, 0.08);
+  }
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-6 py-3
            bg-accent text-white font-medium rounded-lg
            hover:bg-accent/90 active:bg-accent/80
            transition-all duration-200;
   }
+  .btn-primary:hover {
+    transform: scale(1.03);
+    box-shadow: 0 4px 16px rgba(232, 97, 26, 0.2);
+  }
+  .btn-primary:active {
+    transform: scale(0.97);
+  }
   .btn-outline {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
            border border-accent text-accent font-medium rounded-lg
            hover:bg-accent hover:text-white
            transition-all duration-200;
+  }
+  .btn-outline:hover {
+    transform: scale(1.03);
+    box-shadow: 0 4px 16px rgba(232, 97, 26, 0.12);
   }
   .badge {
     @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-md
@@ -79,4 +208,136 @@ body::after {
     content: '';
     @apply flex-1 h-px bg-border;
   }
+  /* Skeleton shimmer for loading states */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--card) 25%,
+      #FFF4E8 50%,
+      var(--card) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  /* Budget progress bar */
+  .progress-bar {
+    @apply h-2 rounded-full overflow-hidden bg-border;
+  }
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+  }
+}
+
+/* ── Travelpayouts Widget Styling Overrides ── */
+/* These attempt to force the widget to match RushTrip's warm palette */
+
+#tpwl-search,
+#tpwl-tickets {
+  /* CSS custom properties the widget v2 may read */
+  --tpwl-main-accent-color: #E8611A;
+  --tpwl-main-accent-contrast-color: #FFFFFF;
+  --tpwl-link-color: #C4A882;
+  --tpwl-main-font-color: #1A1208;
+  --tpwl-ticket-cards-background: #FFF8F0;
+  --tpwl-border-color: #E8DDD0;
+  --tpwl-search-result-background: #FAF7F2;
+  --tpwl-font-family: 'DM Sans', system-ui, sans-serif;
+  --tpwl-border-radius: 8px;
+
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: #FAF7F2;
+  border-radius: 8px;
+}
+
+/* Widget inputs */
+#tpwl-search input,
+#tpwl-tickets input,
+#tpwl-search select,
+#tpwl-tickets select {
+  font-family: 'DM Sans', system-ui, sans-serif !important;
+  border-radius: 8px !important;
+  border-color: #E8DDD0 !important;
+  background-color: #FFFFFF !important;
+  color: #1A1208 !important;
+}
+
+/* Widget buttons (submit / search) */
+#tpwl-search button[type="submit"],
+#tpwl-tickets button[type="submit"],
+#tpwl-search .tpwl-button,
+#tpwl-tickets .tpwl-button,
+#tpwl-search [class*="button"],
+#tpwl-tickets [class*="button"] {
+  background-color: #E8611A !important;
+  color: #FFFFFF !important;
+  border-radius: 8px !important;
+  font-family: 'DM Sans', system-ui, sans-serif !important;
+}
+
+/* Widget links */
+#tpwl-search a,
+#tpwl-tickets a,
+#tpwl-search [class*="link"],
+#tpwl-tickets [class*="link"] {
+  color: #C4A882 !important;
+}
+
+/* Widget cards / results background */
+#tpwl-search [class*="card"],
+#tpwl-tickets [class*="card"],
+#tpwl-search [class*="ticket"],
+#tpwl-tickets [class*="ticket"],
+#tpwl-search [class*="result"],
+#tpwl-tickets [class*="result"] {
+  background-color: #FFF8F0 !important;
+  border-color: #E8DDD0 !important;
+  border-radius: 8px !important;
+}
+
+/* Widget prices */
+#tpwl-search [class*="price"],
+#tpwl-tickets [class*="price"],
+#tpwl-search [class*="cost"],
+#tpwl-tickets [class*="cost"] {
+  color: #E8611A !important;
+}
+
+/* Widget headings / titles */
+#tpwl-search [class*="title"],
+#tpwl-tickets [class*="title"],
+#tpwl-search [class*="headline"],
+#tpwl-tickets [class*="headline"] {
+  color: #1A1208 !important;
+  font-family: 'Playfair Display', Georgia, serif !important;
+}
+
+/* Widget secondary text */
+#tpwl-search [class*="subtitle"],
+#tpwl-tickets [class*="subtitle"],
+#tpwl-search [class*="description"],
+#tpwl-tickets [class*="description"],
+#tpwl-search [class*="muted"],
+#tpwl-tickets [class*="muted"] {
+  color: #8C7B6B !important;
+}
+
+/* Widget container wrapper */
+#tpwl-search .tpwl-widgets__wrapper,
+#tpwl-tickets .tpwl-widgets__wrapper {
+  background-color: #FAF7F2 !important;
+}
+
+/* Widget form wrapper */
+#tpwl-search .tpwl-search__wrapper,
+#tpwl-tickets .tpwl-search__wrapper {
+  background-color: #FFFFFF !important;
+  border-radius: 12px !important;
+  border: 1px solid #E8DDD0 !important;
+}
+
+/* Ensure smooth transitions inside widget */
+#tpwl-search *,
+#tpwl-tickets * {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 200ms;
 }

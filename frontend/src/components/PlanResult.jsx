@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import SummaryCard from './SummaryCard';
+import TierComparison from './TierComparison';
 import PrecisionBadge from './PrecisionBadge';
 import FlightCard from './FlightCard';
 import HotelCard from './HotelCard';
@@ -11,16 +14,60 @@ function formatMoney(n) {
 function AvisoBanner({ mensaje }) {
   if (!mensaje) return null;
   return (
-    <div className="flex items-start gap-3 p-4 bg-[#FFF3CD] border-l-4 border-accent rounded-r-lg">
+    <div className="flex items-start gap-3 p-4 bg-[#FFF3CD] border-l-4 border-accent rounded-r-lg animate-popIn">
       <span className="text-lg mt-0.5">⚠️</span>
       <p className="text-sm text-text/80 leading-relaxed">{mensaje}</p>
     </div>
   );
 }
 
-import { useState } from 'react';
+function BudgetProgressBar({ used, total }) {
+  if (!total || total <= 0) return null;
+  const pct = Math.min((used / total) * 100, 100);
+  const colorClass = pct < 60 ? 'bg-success' : pct < 90 ? 'bg-warning' : 'bg-accent';
 
-function PlanCard({ plan, label, variant }) {
+  return (
+    <div className="mt-3">
+      <div className="flex justify-between text-xs mb-1.5">
+        <span className="text-muted">Presupuesto usado</span>
+        <span className={`font-mono font-medium ${pct > 100 ? 'text-accent' : 'text-text'}`}>
+          {Math.round(pct)}%
+        </span>
+      </div>
+      <div className="progress-bar">
+        <div
+          className={`progress-bar-fill ${colorClass}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CelebrationParticles({ show }) {
+  if (!show) return null;
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
+      {[...Array(8)].map((_, i) => (
+        <div
+          key={i}
+          className="absolute rounded-full animate-popIn"
+          style={{
+            width: `${4 + i * 2}px`,
+            height: `${4 + i * 2}px`,
+            backgroundColor: i % 2 === 0 ? 'rgba(232, 97, 26, 0.4)' : 'rgba(196, 168, 130, 0.5)',
+            left: `${10 + i * 12}%`,
+            top: `${5 + (i % 3) * 30}%`,
+            animationDelay: `${i * 80}ms`,
+            animationDuration: '0.6s',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PlanCard({ plan, label, variant, delay = 0 }) {
   if (!plan || !plan.vuelo) return null;
 
   const [hotelImgError, setHotelImgError] = useState(false);
@@ -35,8 +82,15 @@ function PlanCard({ plan, label, variant }) {
     <div
       className={`relative bg-surface rounded-xl border ${
         isOptimo ? 'border-l-[4px] border-l-accent card-shadow-lg' : 'border-border card-shadow'
-      } animate-fadeSlideUp`}
+      } transition-all duration-500`}
+      style={{
+        opacity: 1,
+        transform: 'translateY(0)',
+        animation: `fadeSlideUp 0.6s ease-out ${delay}ms forwards`,
+      }}
     >
+      <CelebrationParticles show={isOptimo} />
+
       {isOptimo && (
         <div className="p-5 sm:p-6 pb-0">
           <div className="flex items-center justify-between">
@@ -218,6 +272,7 @@ function PlanCard({ plan, label, variant }) {
                       <span className="font-mono text-accent">-{formatMoney(diferencia)}</span>
                     </div>
                   ) : null}
+                  <BudgetProgressBar used={plan.total} total={plan.presupuesto} />
                 </>
               )}
             </div>
@@ -241,12 +296,56 @@ function PlanCard({ plan, label, variant }) {
   );
 }
 
-export default function PlanResult({ data, loading, error, onRetry }) {
+function HotelSort({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <span className="text-xs text-muted">Ordenar por:</span>
+      <div className="flex bg-card rounded-lg border border-border overflow-hidden">
+        {[
+          { key: 'recomendado', label: 'Recomendado' },
+          { key: 'precio_asc', label: 'Precio ↑' },
+          { key: 'precio_desc', label: 'Precio ↓' },
+          { key: 'rating_desc', label: 'Valoración' },
+        ].map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+              value === opt.key
+                ? 'bg-accent text-white'
+                : 'text-muted hover:text-text'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function sortHotels(hoteles, sortBy) {
+  const h = [...hoteles];
+  switch (sortBy) {
+    case 'precio_asc':
+      return h.sort((a, b) => (a.precio || 0) - (b.precio || 0));
+    case 'precio_desc':
+      return h.sort((a, b) => (b.precio || 0) - (a.precio || 0));
+    case 'rating_desc':
+      return h.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    default:
+      return h;
+  }
+}
+
+export default function PlanResult({ data, loading, error, onRetry, onModify }) {
+  const [hotelSort, setHotelSort] = useState('recomendado');
+
   if (loading) return null;
   if (error) {
     return (
-      <div className="bg-surface rounded-xl card-shadow border border-warning/30 p-6 sm:p-8 text-center animate-fadeSlideUp">
-        <div className="w-14 h-14 rounded-full bg-warning/10 text-warning flex items-center justify-center mx-auto mb-4">
+      <div className="bg-surface rounded-xl card-shadow border border-warning/30 p-6 sm:p-8 text-center animate-popIn">
+        <div className="w-14 h-14 rounded-full bg-warning/10 text-warning flex items-center justify-center mx-auto mb-4 animate-gentlePulse">
           <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="12" cy="12" r="10" />
             <path d="M12 8 L12 12" />
@@ -267,23 +366,81 @@ export default function PlanResult({ data, loading, error, onRetry }) {
   }
   if (!data) return null;
 
-  const { aviso, precision, plan_optimo, alternativas, hoteles, coches } = data;
+  const { aviso, precision, plan_optimo, alternativas, hoteles, coches, aeropuertos_alternativos } = data;
+  const sortedHoteles = sortHotels(hoteles || [], hotelSort);
 
   return (
-    <div className="space-y-6 animate-fadeSlideUp">
+    <div className="space-y-6">
       <AvisoBanner mensaje={aviso} />
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* Summary at top */}
+      <SummaryCard data={data} onModify={onModify} />
+
+      {/* Tier comparison - budget options */}
+      {plan_optimo && (
+        <TierComparison
+          plan={plan_optimo}
+          alternativas={alternativas}
+          presupuesto={data.presupuesto}
+        />
+      )}
+
+      <div
+        className="flex flex-wrap items-center justify-between gap-4"
+        style={{ animation: 'fadeSlideUp 0.5s ease-out forwards' }}
+      >
         <h2 className="font-display text-xl sm:text-2xl text-text">
           Tu plan de viaje
         </h2>
         {precision && <PrecisionBadge precision={precision} />}
       </div>
 
-      {plan_optimo && <PlanCard plan={plan_optimo} variant="optimo" />}
+      {plan_optimo && <PlanCard plan={plan_optimo} variant="optimo" delay={100} />}
+
+      {aeropuertos_alternativos?.length > 0 && (
+        <div
+          style={{ animation: 'fadeSlideUp 0.5s ease-out 400ms forwards', opacity: 0 }}
+        >
+          <h3 className="font-display text-lg text-text mb-2">
+            🌍 Aeropuertos alternativos cerca de {data.ciudad_destino || data.destino}
+          </h3>
+          <p className="text-sm text-muted mb-4">
+            Volar a un aeropuerto cercano puede ser mas barato
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {aeropuertos_alternativos.map((alt, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-3 p-3 bg-card rounded-lg border border-border hover-lift"
+                style={{ animation: `fadeSlideUp 0.5s ease-out ${500 + i * 100}ms forwards`, opacity: 0 }}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text">{alt.nombre}</p>
+                  <p className="text-xs text-muted">
+                    {alt.iata}
+                    {alt.precision === 'exacta' ? ' • Precio exacto' : alt.precision === 'mes' ? ' • Precio del mes' : ''}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono text-sm text-accent font-medium">
+                    {formatMoney(alt.vuelo_mas_barato)}
+                  </p>
+                  {plan_optimo && alt.vuelo_mas_barato < plan_optimo.vuelo?.precio_total && (
+                    <span className="badge bg-success/15 text-success border border-success/20 text-xs">
+                      +{formatMoney(plan_optimo.vuelo?.precio_total - alt.vuelo_mas_barato)} ahorro
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {alternativas?.length > 0 && (
-        <div>
+        <div
+          style={{ animation: 'fadeSlideUp 0.5s ease-out 600ms forwards', opacity: 0 }}
+        >
           <h3 className="font-display text-lg text-text mb-4">Alternativas</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {alternativas.map((alt, i) => (
@@ -292,6 +449,7 @@ export default function PlanResult({ data, loading, error, onRetry }) {
                 plan={alt}
                 variant="alternativa"
                 label={`Opción ${i + 1}`}
+                delay={700 + i * 150}
               />
             ))}
           </div>
@@ -299,33 +457,46 @@ export default function PlanResult({ data, loading, error, onRetry }) {
       )}
 
       {hoteles?.length > 0 && (
-        <div>
-          <h3 className="font-display text-lg text-text mb-2">Más hoteles en {data.ciudad_destino || 'el destino'}</h3>
-          <p className="text-sm text-muted mb-4">Otras opciones disponibles para tus fechas</p>
+        <div
+          style={{ animation: 'fadeSlideUp 0.5s ease-out 900ms forwards', opacity: 0 }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+            <div>
+              <h3 className="font-display text-lg text-text">Más hoteles en {data.ciudad_destino || 'el destino'}</h3>
+              <p className="text-sm text-muted">Otras opciones disponibles para tus fechas</p>
+            </div>
+          </div>
+          <HotelSort value={hotelSort} onChange={setHotelSort} />
           <div className="grid grid-cols-1 gap-4">
-            {hoteles.map((h, i) => (
-              <HotelCard key={i} hotel={h} />
+            {sortedHoteles.map((h, i) => (
+              <div key={`${h.id || i}`} style={{ animation: `fadeSlideUp 0.4s ease-out ${1000 + i * 80}ms forwards`, opacity: 0 }}>
+                <HotelCard hotel={h} />
+              </div>
             ))}
           </div>
         </div>
       )}
 
       {coches?.coches?.length > 0 && (
-        <div>
+        <div
+          style={{ animation: 'fadeSlideUp 0.5s ease-out 1100ms forwards', opacity: 0 }}
+        >
           <h3 className="font-display text-lg text-text mb-4 mt-8">Alquiler de coches</h3>
           <p className="text-sm text-muted mb-4">
             Opciones de alquiler de coches en {coches.ciudad || 'el destino'}
           </p>
           <div className="grid grid-cols-1 gap-3">
             {coches.coches.slice(0, 5).map((c, i) => (
-              <CarCard key={i} car={c} />
+              <div key={i} style={{ animation: `fadeSlideUp 0.4s ease-out ${1200 + i * 80}ms forwards`, opacity: 0 }}>
+                <CarCard car={c} />
+              </div>
             ))}
           </div>
         </div>
       )}
 
       {!plan_optimo && !alternativas?.length && !hoteles?.length && !coches?.coches?.length && (
-        <div className="text-center py-10 text-muted">
+        <div className="text-center py-10 text-muted animate-popIn">
           <p className="text-sm">No encontramos opciones para tu búsqueda.</p>
           <button onClick={onRetry} className="btn-outline mt-4">
             Intentar de nuevo

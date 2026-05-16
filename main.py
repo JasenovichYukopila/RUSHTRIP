@@ -10,6 +10,8 @@ from backend.routes.hotels   import router as hotels_router
 from backend.routes.cars     import router as cars_router
 from backend.routes.plan     import router as plan_router
 from core.config import settings
+from core.errors import AppError, ExternalAPIError
+from core.logging import setup_logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -84,6 +86,99 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Security headers (CSP) ──────────────────────────────────────────────
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://tpwidg.com https://*.tpwidg.com 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https: http:; "
+        "connect-src 'self' https://*.travelpayouts.com https://*.rapidapi.com"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+# ── Rate limiting simple (in-memory) ────────────────────────────────────
+import time as _time
+_rate_limit_store: dict[str, list[float]] = {}
+_RATE_LIMIT_WINDOW = 60
+_RATE_PLAN_LIMIT = 10
+_RATE_SEARCH_LIMIT = 30
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    path = request.url.path
+    if path in ("/health", "/", "/docs", "/openapi.json"):
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = _time.time()
+    key = f"{client_ip}:{path}"
+
+    if key not in _rate_limit_store:
+        _rate_limit_store[key] = []
+
+    timestamps = [t for t in _rate_limit_store[key] if now - t < _RATE_LIMIT_WINDOW]
+    _rate_limit_store[key] = timestamps
+
+    limit = _RATE_PLAN_LIMIT if "/plan" in path else _RATE_SEARCH_LIMIT
+    if len(timestamps) >= limit:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": True,
+                "code": "rate_limit",
+                "detail": "Demasiadas solicitudes. Espera un momento e intenta de nuevo.",
+            },
+        )
+
+    timestamps.append(now)
+    return await call_next(request)
+
+# ── Inicializar logging ─────────────────────────────────────────────────
+setup_logging()
+
+# ── Exception handlers globales ─────────────────────────────────────────
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    return JSONResponse(
+        status_code=502 if exc.code == "external_api_error" else 422,
+        content={
+            "error": True,
+            "code": exc.code,
+            "detail": exc.message,
+        },
+    )
+
+@app.exception_handler(ExternalAPIError)
+async def external_api_error_handler(request: Request, exc: ExternalAPIError):
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": True,
+            "code": "external_api_error",
+            "detail": "No pudimos consultar disponibilidad en este momento. Por favor, intenta de nuevo.",
+            "provider": exc.provider,
+        },
+    )
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    from loguru import logger
+    logger.exception(f"Error no manejado: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "code": "internal_error",
+            "detail": "Ocurrio un error inesperado. El equipo ha sido notificado.",
+        },
+    )
+
 # ── Rutas API ────────────────────────────────────────────────────────────
 app.include_router(plan_router)
 app.include_router(airports_router)
@@ -101,19 +196,15 @@ async def root():
     return {"status": "ok", "app": "RushTrip API", "version": "1.1.0", "docs": "/docs"}
 
 # ── Frontend estatico (solo en desarrollo local) ───────────────────────
-import os
-from pathlib import Path
-
 STATIC_DIR = Path(__file__).resolve().parent / "frontend" / "dist"
 if STATIC_DIR.is_dir() and os.environ.get("VERCEL") is None:
     from fastapi.staticfiles import StaticFiles
-    if STATIC_DIR.is_dir():
-        @app.get("/{full_path:path}")
-        async def serve_frontend(full_path: str):
-            file_path = STATIC_DIR / full_path
-            if file_path.is_file():
-                return FileResponse(file_path)
-            index_path = STATIC_DIR / "index.html"
-            if index_path.is_file():
-                return FileResponse(index_path, media_type="text/html")
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = STATIC_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        index_path = STATIC_DIR / "index.html"
+        if index_path.is_file():
+            return FileResponse(index_path, media_type="text/html")
+        return JSONResponse({"detail": "Not Found"}, status_code=404)

@@ -94,60 +94,69 @@ def _calcular_dias(pickup_date: str | None, dropoff_date: str | None) -> int:
 def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | None) -> dict:
     """
     Genera datos de fallback con precios estimados cuando la API falla.
-    Incluye 4 categorías de vehículos con precios relativos.
+    Incluye 4 categorias de vehiculos con precios relativos.
     """
     dias = _calcular_dias(pickup_date, dropoff_date)
     precio_dia = _precio_coche_referencia(iata)
     precio_total = round(precio_dia * dias, 2)
+    lat, lng = _get_coords(iata)
+    pickup = pickup_date or ""
+    dropoff = dropoff_date or ""
 
-    # Catálogo de vehículos predefinidos con precios escalados
+    link_base = (
+        f"https://www.booking.com/cars/search?"
+        f"lat={lat}&lng={lng}&pickupDate={pickup}&dropoffDate={dropoff}"
+        f"&currency=USD"
+    )
+
+    # Catalogo de vehiculos predefinidos con precios escalados
     coches = [
         {
-            "nombre": "Económico",
-            "tipo": "Económico",
+            "nombre": "Economico",
+            "tipo": "Economico",
             "transmision": "Manual",
             "pasajeros": 4,
             "maletas": 2,
-            "precio_total": round(precio_total * 0.8, 2),  # 20% más barato
+            "precio_total": round(precio_total * 0.8, 2),
             "moneda": "USD",
             "proveedor": "Local",
-            "link_reserva": "",  # Sin link porque son datos estimados
+            "link_reserva": link_base,
             "foto_url": "",
         },
         {
             "nombre": "Compacto",
             "tipo": "Compacto",
-            "transmision": "Automática",
+            "transmision": "Automatica",
             "pasajeros": 5,
             "maletas": 3,
-            "precio_total": precio_total,  # Precio base
+            "precio_total": precio_total,
             "moneda": "USD",
             "proveedor": "Local",
-            "link_reserva": "",
+            "link_reserva": link_base,
             "foto_url": "",
         },
         {
             "nombre": "SUV",
             "tipo": "SUV",
-            "transmision": "Automática",
+            "transmision": "Automatica",
             "pasajeros": 5,
             "maletas": 4,
-            "precio_total": round(precio_total * 1.5, 2),  # 50% más caro
+            "precio_total": round(precio_total * 1.5, 2),
             "moneda": "USD",
             "proveedor": "Local",
-            "link_reserva": "",
+            "link_reserva": link_base,
             "foto_url": "",
         },
         {
             "nombre": "Familiar",
             "tipo": "Familiar",
-            "transmision": "Automática",
+            "transmision": "Automatica",
             "pasajeros": 7,
             "maletas": 5,
-            "precio_total": round(precio_total * 2.0, 2),  # 100% más caro
+            "precio_total": round(precio_total * 2.0, 2),
             "moneda": "USD",
             "proveedor": "Local",
-            "link_reserva": "",
+            "link_reserva": link_base,
             "foto_url": "",
         },
     ]

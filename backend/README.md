@@ -13,7 +13,7 @@ backend/
     ├── cars.py        # GET /cars
     ├── flights.py     # GET /flights
     ├── hotels.py      # GET /hotels
-    └── plan.py        # POST /plan
+    └── plan.py        # POST /plan (acepta nombres de ciudad)
 ```
 
 ## Descripción de Endpoints
@@ -47,7 +47,9 @@ Busca aeropuertos y ciudades por nombre.
 ---
 
 ### GET /flights
-Busca vuelos entre dos ciudades.
+Busca vuelos entre dos aeropuertos (requiere códigos IATA).
+
+> **Nota:** Este endpoint es usado internamente por el planificador. Para usuarios finales, usar `POST /plan/` que acepta nombres de ciudad.
 
 **Query Parameters:**
 | Parámetro | Tipo | Requerido | Descripción |
@@ -159,24 +161,46 @@ Busca opciones de alquiler de coches.
 ### POST /plan
 Genera plan de viaje optimizado por presupuesto. **Endpoint principal.**
 
+Acepta **nombres de ciudad** (ej: "Bogotá", "Madrid") o códigos IATA (ej: "BOG", "MAD"). El backend resuelve automáticamente el aeropuerto principal de cada ciudad.
+
 **Request Body:**
 ```json
 {
-  "origen": "BOG",
-  "destino": "MIA",
+  "origen": "Bogotá",
+  "destino": "Madrid",
   "fecha_salida": "2026-12-15",
   "fecha_regreso": "2026-12-22",
   "presupuesto": 800.00,
-  "pasajeros": 1
+  "pasajeros": 1,
+  "incluir_hotel": true,
+  "incluir_vehiculo": false,
+  "tier": "estandar",
+  "modo": "exacto",
+  "duracion_dias": 7
 }
 ```
+
+**Campos:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|-----------|-------------|
+| `origen` | string | Sí | Ciudad o código IATA de origen |
+| `destino` | string | Sí | Ciudad o código IATA de destino |
+| `fecha_salida` | string | Sí | Fecha de salida (YYYY-MM-DD) |
+| `fecha_regreso` | string | Sí* | Fecha de regreso (YYYY-MM-DD). *No requerida si `modo=flexible` |
+| `presupuesto` | float | Sí | Presupuesto total en USD |
+| `pasajeros` | int | No | Default: 1 (rango 1-9) |
+| `incluir_hotel` | bool | No | Default: true |
+| `incluir_vehiculo` | bool | No | Default: false |
+| `tier` | string | No | Default: "estandar" (economico, estandar, premium) |
+| `modo` | string | No | Default: "exacto" (exacto, flexible) |
+| `duracion_dias` | int | No | Default: 7. Solo usado cuando `modo=flexible` |
 
 **Response:**
 ```json
 {
   "origen": "BOG",
-  "destino": "MIA",
-  "ciudad_destino": "Miami",
+  "destino": "MAD",
+  "ciudad_destino": "Madrid",
   "fecha_salida": "2026-12-15",
   "fecha_regreso": "2026-12-22",
   "noches": 7,
@@ -184,21 +208,29 @@ Genera plan de viaje optimizado por presupuesto. **Endpoint principal.**
   "plan_optimo": {
     "vuelo": {...},
     "hotel": {...},
+    "coche": {...},
     "total": 750.00,
     "dentro_presupuesto": true
   },
   "alternativas": [...],
   "hoteles": [...],
   "coches": {...},
+  "aeropuertos_alternativos": [...],
   "precision": "exacta",
   "aviso": null
 }
 ```
 
 **Errores:**
-- `422` - Validación de fechas, rango > 30 días, origen == destino
+- `422` - Validación de fechas, rango > 30 días, origen == destino, o no se encontró aeropuerto para la ciudad dada
 
 **Servicio:** `services.plan.generar_plan`
+
+**Resolución de ciudades:**
+Internamente, el endpoint llama a `services.plan.resolver_iata()` para:
+1. Verificar si el texto ya es un código IATA (3 letras) → usar directamente
+2. Si no, buscar en la API de Travelpayouts autocomplete → tomar el primer resultado
+3. Cachear la resolución para evitar llamadas repetidas
 
 ---
 
@@ -208,7 +240,7 @@ Todos los endpoints aplican validaciones:
 
 1. **Fechas:** Formato YYYY-MM-DD, deben ser válidas
 2. **Rango:** Máximo 30 días entre salida y regreso
-3. **IATA codes:** 3 caracteres para códigos de aeropuerto
+3. **Origen/Destino:** Mínimo 2 caracteres (acepta nombres de ciudad o IATA)
 4. **Pasajeros:** Rango 1-9 para el endpoint /plan
 
 ## Tags de OpenAPI

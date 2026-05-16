@@ -3,12 +3,52 @@
 # Combina búsquedas de vuelos, hoteles y coches para crear el mejor plan
 
 import logging
+import re
 from core.config import settings
 from services.flights import buscar_vuelos
-from services.hotels  import buscar_hoteles, _calcular_noches
+from services.hotels  import buscar_hoteles, _calcular_noches, PRECIO_REFERENCIA_HOTEL
 from services.cars    import buscar_coches
+from services.airports import aeropuertos_alternativos, buscar_aeropuerto
 
 logger = logging.getLogger(__name__)
+
+# Cache simple para resoluciones ciudad → IATA (evita pegar a API repetidamente)
+_RESOLUCIONES_CACHE: dict[str, str] = {}
+
+async def resolver_iata(texto: str) -> str:
+    """
+    Convierte un texto (ciudad o IATA) en un código IATA de 3 letras.
+
+    Si el texto ya parece un código IATA (3 letras), lo devuelve tal cual.
+    Si no, busca aeropuertos con la API y devuelve el primer resultado.
+
+    Args:
+        texto: Nombre de ciudad o código IATA
+
+    Returns:
+        Código IATA de 3 letras en mayúsculas
+
+    Raises:
+        ValueError: Si no se encuentra ningún aeropuerto para el texto dado
+    """
+    limpio = texto.strip().upper()
+
+    # Si ya es un IATA válido de 3 letras, devolverlo directamente
+    if re.match(r"^[A-Z]{3}$", limpio):
+        return limpio
+
+    # Verificar cache local
+    if limpio in _RESOLUCIONES_CACHE:
+        return _RESOLUCIONES_CACHE[limpio]
+
+    # Llamar API de aeropuertos para resolver
+    resultados = await buscar_aeropuerto(limpio)
+    if resultados and len(resultados) > 0:
+        iata = resultados[0]["codigo"]
+        _RESOLUCIONES_CACHE[limpio] = iata
+        return iata
+
+    raise ValueError(f"No se encontró aeropuerto para: {texto}")
 
 # Mapeo IATA → nombre de ciudad para buscar hoteles
 # Necesario porque la API de hoteles busca por nombre de ciudad, no por IATA
@@ -21,31 +61,35 @@ IATA_A_CIUDAD: dict[str, str] = {
     "GDL": "Guadalajara", "LIM": "Lima", "GYE": "Guayaquil",
     "UIO": "Quito", "SCL": "Santiago", "EZE": "Buenos Aires",
     "GRU": "São Paulo", "SDQ": "Santo Domingo", "HAV": "La Habana",
-    "PTY": "Panamá", "SJO": "San José",
-    # Norte América
+    "PTY": "Panamá", "SJO": "San José", "BZE": "Belice",
+    "SAL": "San Salvador", "MGA": "Managua", "TGU": "Tegucigalpa",
+    # Norte America
     "JFK": "Nueva York", "LAX": "Los Ángeles", "ORD": "Chicago",
     "MCO": "Orlando", "LAS": "Las Vegas", "SFO": "San Francisco",
     "BOS": "Boston", "DCA": "Washington", "ATL": "Atlanta",
+    "SEA": "Seattle", "DEN": "Denver", "IAH": "Houston",
+    "DFW": "Dallas", "YYZ": "Toronto", "YVR": "Vancouver",
     # Europa
     "MAD": "Madrid", "BCN": "Barcelona", "LHR": "Londres",
     "CDG": "París", "FCO": "Roma", "AMS": "Ámsterdam",
     "FRA": "Fráncfort", "LIS": "Lisboa", "VIE": "Viena",
-    "ZRH": "Zúrich",
+    "ZRH": "Zúrich", "MXP": "Milán", "DUB": "Dublín",
+    "BRU": "Bruselas", "BER": "Berlín", "MUC": "Múnich",
+    "ORY": "París", "LGW": "Londres", "STN": "Londres",
+    # Asia / Medio Oriente
+    "DXB": "Dubái", "SIN": "Singapur", "BKK": "Bangkok",
+    "HND": "Tokio", "NRT": "Tokio", "ICN": "Seúl",
+    "HKG": "Hong Kong", "KUL": "Kuala Lumpur", "DEL": "Delhi",
+    "BOM": "Mumbai", "DOH": "Doha", "AUH": "Abu Dabi",
+    "IST": "Estambul", "TLV": "Tel Aviv",
+    # Oceania
+    "SYD": "Sídney", "MEL": "Melbourne", "AKL": "Auckland",
+    # Africa
+    "JNB": "Johannesburgo", "CPT": "Ciudad del Cabo", "CAI": "El Cairo",
+    "CMN": "Casablanca", "NBO": "Nairobi",
 }
 
-# Precio promedio por noche en USD según destino
-# Usado para estimar costos de hotel cuando no hay datos reales
-PRECIO_REFERENCIA_HOTEL: dict[str, float] = {
-    "BOG": 45,  "MDE": 50,  "CLO": 40,  "CTG": 70,  "BAQ": 45,
-    "MIA": 120, "CUN": 85,  "MEX": 70,  "GDL": 60,  "LIM": 55,
-    "GYE": 45,  "UIO": 50,  "SCL": 80,  "EZE": 65,  "GRU": 70,
-    "SDQ": 75,  "HAV": 90,  "PTY": 80,  "SJO": 75,
-    "JFK": 200, "LAX": 170, "ORD": 140, "MCO": 100, "LAS": 90,
-    "SFO": 190, "BOS": 160, "DCA": 150, "ATL": 110,
-    "MAD": 90,  "BCN": 100, "LHR": 180, "CDG": 160, "FCO": 130,
-    "AMS": 150, "FRA": 130, "LIS": 95,  "VIE": 110, "ZRH": 200,
-    "_default": 80,
-}
+# Precio promedio por noche (importado de services/hotels para evitar duplicacion)
 
 
 # Configuración de tiers para diferentes presupuestos
@@ -155,37 +199,38 @@ def _armar_plan(
     return plan
 
 
-def _emparejar_hotel(plan: dict, hoteles: list, presupuesto: float) -> None:
+def _emparejar_hotel(plan: dict, hoteles: list, presupuesto: float) -> dict:
     """
     Reemplaza el hotel estimado por el mejor hotel real disponible
-    dentro del presupuesto restante después del vuelo.
+    dentro del presupuesto restante despues del vuelo.
 
-    Modifica el plan in-place.
+    Devuelve un nuevo plan con el hotel actualizado (no modifica el original).
 
     Args:
-        plan: Plan de viaje a modificar
+        plan: Plan de viaje original
         hoteles: Lista de hoteles reales disponibles
         presupuesto: Presupuesto total del viaje
+
+    Returns:
+        Nuevo dict con hotel actualizado
     """
     costo_vuelo = plan["vuelo"]["precio_total"]
     restante = presupuesto - costo_vuelo
+    nuevo_plan = dict(plan)
 
     if not hoteles:
-        # No hay hoteles reales, mantener estimado
-        plan["hotel"]["tipo"] = "estimado"
-        return
+        nuevo_plan["hotel"] = {**nuevo_plan["hotel"], "tipo": "estimado"}
+        return nuevo_plan
 
-    # Buscar hoteles que quepan en el presupuesto restante
     candidatos = [h for h in hoteles if h.get("precio_total", 0) <= restante]
     if not candidatos:
-        # Si ninguno cabe, usar el más barato de todos
         candidatos = sorted(hoteles, key=lambda h: h.get("precio_total", 0))
 
-    # Tomar el primero (más económico de los candidatos)
     mejor = candidatos[0]
-    plan["hotel"] = {**mejor, "tipo": "recomendado"}
-    plan["total"] = round(costo_vuelo + mejor["precio_total"], 2)
-    plan["dentro_presupuesto"] = plan["total"] <= presupuesto
+    nuevo_plan["hotel"] = {**mejor, "tipo": "recomendado"}
+    nuevo_plan["total"] = round(costo_vuelo + mejor["precio_total"], 2)
+    nuevo_plan["dentro_presupuesto"] = nuevo_plan["total"] <= presupuesto
+    return nuevo_plan
 
 
 async def generar_plan(
@@ -198,29 +243,34 @@ async def generar_plan(
     incluir_hotel:   bool = True,
     incluir_vehiculo: bool = False,
     tier:            str = "estandar",
+    modo:            str = "exacto",
+    duracion_dias:   int = 7,
 ) -> dict:
     """
     Genera un plan de viaje optimizado para el presupuesto dado.
 
     El proceso:
       1. Busca vuelos disponibles (con fallback en 3 niveles)
-      2. Busca hoteles reales si incluir_hotel=True
-      3. Busca alquiler de coches si incluir_vehiculo=True
-      4. Filtra según tier (excluye low-cost en premium)
-      5. Calcula planes para cada vuelo
-      6. Empareja cada plan con el mejor hotel disponible
-      7. Selecciona el plan óptimo (más caro dentro del presupuesto)
+      2. Si modo=flexible, prueba varias fechas y elige la mas barata
+      3. Busca hoteles reales si incluir_hotel=True
+      4. Busca alquiler de coches si incluir_vehiculo=True
+      5. Filtra segun tier (excluye low-cost en premium)
+      6. Calcula planes para cada vuelo
+      7. Empareja cada plan con el mejor hotel disponible
+      8. Selecciona el plan optimo (mas caro dentro del presupuesto)
 
     Args:
-        origen: Código IATA del aeropuerto de origen
-        destino: Código IATA del aeropuerto de destino
+        origen: Codigo IATA del aeropuerto de origen
+        destino: Codigo IATA del aeropuerto de destino
         fecha_salida: Fecha de salida (YYYY-MM-DD)
         fecha_regreso: Fecha de regreso (YYYY-MM-DD)
         presupuesto: Presupuesto total en USD
-        pasajeros: Número de pasajeros (default: 1)
-        incluir_hotel: Si True, incluye búsqueda de hoteles (default: True)
-        incluir_vehiculo: Si True, incluye búsqueda de coches (default: False)
+        pasajeros: Numero de pasajeros (default: 1)
+        incluir_hotel: Si True, incluye busqueda de hoteles (default: True)
+        incluir_vehiculo: Si True, incluye busqueda de coches (default: False)
         tier: Nivel de calidad ('economico', 'estandar', 'premium')
+        modo: 'exacto' (fechas fijas) o 'flexible' (busca mejor precio en el mes)
+        duracion_dias: Dias de estadia para modo flexible
 
     Returns:
         Dict con plan_optimo, alternativas, hoteles, coches y avisos
@@ -232,9 +282,60 @@ async def generar_plan(
     cfg = TIER_CONFIG.get(tier, TIER_CONFIG["estandar"])
 
     # 1. Buscar vuelos (estrategia de 3 niveles ya integrada)
-    resultado_vuelos = await buscar_vuelos(
-        origen, destino, fecha_salida, fecha_regreso, pasajeros
-    )
+    # Si modo flexible, busca por mes y luego prueba ventanas de fechas
+    if modo == "flexible":
+        from datetime import datetime as dt, timedelta
+        aviso_flex = None
+        mes = fecha_salida[:7]  # YYYY-MM
+        resultado_vuelos = await buscar_vuelos(origen, destino, mes, mes, pasajeros)
+        if resultado_vuelos.get("vuelos"):
+            # Agrupar vuelos baratos por dia de salida para encontrar la mejor ventana
+            vuelos_mes = resultado_vuelos["vuelos"]
+            try:
+                inicio_mes = dt.strptime(mes + "-01", "%Y-%m-%d")
+                if inicio_mes.month == 12:
+                    fin_mes = dt(inicio_mes.year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    fin_mes = dt(inicio_mes.year, inicio_mes.month + 1, 1) - timedelta(days=1)
+                dias_mes = (fin_mes - inicio_mes).days + 1
+                max_start = dias_mes - duracion_dias
+                if max_start > 0:
+                    mejor_total = float("inf")
+                    mejor_salida = fecha_salida
+                    mejor_regreso = fecha_regreso
+                    for offset in range(0, max_start + 1, max(1, max_start // 5)):
+                        d_salida = inicio_mes + timedelta(days=offset)
+                        d_regreso = d_salida + timedelta(days=duracion_dias)
+                        s_str = d_salida.strftime("%Y-%m-%d")
+                        r_str = d_regreso.strftime("%Y-%m-%d")
+                        try:
+                            res_ventana = await buscar_vuelos(origen, destino, s_str, r_str, pasajeros)
+                            if res_ventana.get("vuelos"):
+                                min_precio = min(v["precio_total"] for v in res_ventana["vuelos"])
+                                if min_precio < mejor_total:
+                                    mejor_total = min_precio
+                                    mejor_salida = s_str
+                                    mejor_regreso = r_str
+                                    resultado_vuelos = res_ventana
+                        except Exception:
+                            pass
+                    fecha_salida = mejor_salida
+                    fecha_regreso = mejor_regreso
+                    aviso_flex = (
+                        f"Modo flexible: encontramos la mejor fecha para tu viaje de {duracion_dias} dias. "
+                        f"Salida: {mejor_salida}, Regreso: {mejor_regreso}."
+                    )
+            except Exception:
+                pass
+        else:
+            resultado_vuelos = await buscar_vuelos(origen, destino, fecha_salida, fecha_regreso, pasajeros)
+
+        if aviso_flex:
+            resultado_vuelos["aviso"] = aviso_flex
+    else:
+        resultado_vuelos = await buscar_vuelos(
+            origen, destino, fecha_salida, fecha_regreso, pasajeros
+        )
 
     # 2. Convertir IATA a nombre de ciudad para hoteles
     ciudad_destino = _ciudad_desde_iata(destino)
@@ -303,9 +404,11 @@ async def generar_plan(
         for v in vuelos
     ]
 
-    # 5. Emparejar cada plan con el mejor hotel real según presupuesto
-    for p in planes:
+    # 5. Emparejar cada plan con el mejor hotel real segun presupuesto
+    planes = [
         _emparejar_hotel(p, hoteles_lista, presupuesto)
+        for p in planes
+    ]
 
     # Separar planes que caben en el presupuesto de los que no
     dentro = [p for p in planes if p["dentro_presupuesto"]]
@@ -336,6 +439,24 @@ async def generar_plan(
         if aviso_vuelos:
             aviso = aviso_vuelos + " " + aviso
 
+    # 7. Buscar aeropuertos alternativos cercanos al destino
+    alternativas_aeropuerto = []
+    cercanos = aeropuertos_alternativos(destino)
+    if cercanos:
+        for alt in cercanos[:3]:
+            try:
+                res_alt = await buscar_vuelos(origen, alt, fecha_salida, fecha_regreso, pasajeros)
+                if res_alt.get("vuelos"):
+                    mejor_alt = min(res_alt["vuelos"], key=lambda v: v["precio_total"])
+                    alternativas_aeropuerto.append({
+                        "iata": alt,
+                        "nombre": _ciudad_desde_iata(alt),
+                        "vuelo_mas_barato": mejor_alt["precio_total"],
+                        "precision": res_alt.get("precision", "sin_resultados"),
+                    })
+            except Exception:
+                pass
+
     # Devolver resultado completo
     return {
         "origen":         origen.upper(),
@@ -352,4 +473,5 @@ async def generar_plan(
         "coches":         resultado_coches,
         "aviso":          aviso,
         "precision":      precision,
+        "aeropuertos_alternativos": alternativas_aeropuerto,
     }

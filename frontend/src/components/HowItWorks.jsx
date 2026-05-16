@@ -1,3 +1,5 @@
+import { useScrollReveal } from '../hooks/useScrollReveal';
+
 const STEPS = [
   {
     icon: (
@@ -39,11 +41,68 @@ const STEPS = [
   },
 ];
 
+function AnimatedArrow({ isVisible }) {
+  return (
+    <svg
+      viewBox="0 0 80 24"
+      className="w-20 h-6 mx-auto mt-4 hidden md:block"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeDasharray="80"
+      strokeDashoffset={isVisible ? 0 : 80}
+      style={{
+        transition: 'stroke-dashoffset 0.8s ease-out',
+        color: 'rgba(232, 97, 26, 0.3)',
+      }}
+    >
+      <path d="M0 12 L70 12" />
+      <path d="M62 7 L70 12 L62 17" />
+    </svg>
+  );
+}
+
+function StepCard({ step, index, isVisible }) {
+  const ref = useScrollReveal(0.2);
+
+  return (
+    <div
+      ref={ref.ref}
+      className={`flex flex-col items-center text-center transition-all duration-500 ${
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+      }`}
+      style={{ transitionDelay: `${index * 200}ms` }}
+    >
+      <div className="w-20 h-20 rounded-xl bg-card border border-border flex items-center justify-center mb-5 card-shadow hover-lift cursor-default">
+        {step.icon}
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="font-mono text-xs text-muted">0{index + 1}</span>
+        <span className="w-6 h-px bg-accent2/40" />
+      </div>
+      <h3 className="font-display text-xl text-text mb-2">
+        {step.title}
+      </h3>
+      <p className="text-sm text-muted leading-relaxed max-w-xs">
+        {step.desc}
+      </p>
+    </div>
+  );
+}
+
 export default function HowItWorks() {
+  const sectionRef = useScrollReveal(0.15);
+  const isVisible = sectionRef.isVisible;
+
   return (
     <section className="py-16 sm:py-24 bg-surface/50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-14">
+        <div
+          ref={sectionRef.ref}
+          className={`text-center mb-14 transition-all duration-700 ${
+            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+          }`}
+        >
           <h2 className="font-display text-3xl sm:text-4xl text-text">
             ¿Cómo funciona?
           </h2>
@@ -54,32 +113,9 @@ export default function HowItWorks() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
           {STEPS.map((step, i) => (
-            <div
-              key={i}
-              className="flex flex-col items-center text-center opacity-0 animate-fadeSlideUp"
-              style={{ animationDelay: `${i * 200}ms`, animationFillMode: 'forwards' }}
-            >
-              <div className="w-20 h-20 rounded-xl bg-card border border-border flex items-center justify-center mb-5 card-shadow">
-                {step.icon}
-              </div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="font-mono text-xs text-muted">0{i + 1}</span>
-                <span className="w-6 h-px bg-accent2/40" />
-              </div>
-              <h3 className="font-display text-xl text-text mb-2">
-                {step.title}
-              </h3>
-              <p className="text-sm text-muted leading-relaxed max-w-xs">
-                {step.desc}
-              </p>
-              {i < STEPS.length - 1 && (
-                <div className="mt-6 text-accent/30 hidden md:block">
-                  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1">
-                    <path d="M5 12 H19" />
-                    <path d="M14 7 L19 12 L14 17" />
-                  </svg>
-                </div>
-              )}
+            <div key={i} className="flex flex-col items-center">
+              <StepCard step={step} index={i} isVisible={isVisible} />
+              {i < STEPS.length - 1 && <AnimatedArrow isVisible={isVisible} />}
             </div>
           ))}
         </div>

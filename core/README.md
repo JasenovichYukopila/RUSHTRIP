@@ -74,8 +74,14 @@ Cache simple con TTL (Time To Live) para funciones async.
 |--------|-------------|
 | `get(key)` | Obtiene valor si existe y no expiró |
 | `set(key, value)` | Almacena valor con timestamp actual |
+| `get_expired(key)` | Obtiene valor aunque haya expirado (útil para fallback) |
 | `clear()` | Limpia todas las entradas |
 | `key in cache` | Verifica si clave existe y es válida |
+
+**Usado en:**
+- Resolución de ciudades a códigos IATA (`services.plan`)
+- Búsqueda de aeropuertos (`services.airports`)
+- Precios de referencia de hoteles (`services.hotels`)
 
 **Uso:**
 ```python

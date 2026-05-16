@@ -24,7 +24,7 @@ export default function FlightCard({ vuelo, variant = 'default' }) {
 
   if (variant === 'compact') {
     return (
-      <div className="flex items-center gap-3 p-3 bg-card rounded-lg border border-border">
+      <div className="flex items-center gap-3 p-3 bg-card rounded-lg border border-border hover-lift">
         {vuelo.logo_url && (
           <img
             src={vuelo.logo_url}
@@ -54,7 +54,7 @@ export default function FlightCard({ vuelo, variant = 'default' }) {
   }
 
   return (
-    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-card rounded-lg border border-border">
+    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-card rounded-lg border border-border hover-lift">
       {vuelo.logo_url && (
         <img
           src={vuelo.logo_url}
@@ -90,6 +90,11 @@ export default function FlightCard({ vuelo, variant = 'default' }) {
           ${vuelo.precio_por_persona?.toFixed(0)}
         </p>
         <p className="text-xs text-muted">por persona</p>
+        {vuelo.co2_kg != null && (
+          <p className="text-xs text-muted mt-1" title="Huella de carbono estimada por pasajero">
+            🌱 {vuelo.co2_kg} kg CO₂
+          </p>
+        )}
       </div>
     </div>
   );

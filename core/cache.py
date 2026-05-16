@@ -37,15 +37,31 @@ class TTLCache:
             key: Clave del cache
 
         Returns:
-            El valor almacenado o None si expiró/no existe
+            El valor almacenado o None si expiro/no existe
         """
         if key in self._cache:
             value, timestamp = self._cache[key]
             if time.time() - timestamp < self.ttl:
                 return value
             else:
-                # Expiró, eliminar entrada
+                # Expiro, eliminar entrada
                 del self._cache[key]
+        return None
+
+    def get_expired(self, key: str) -> Optional[Any]:
+        """
+        Obtiene un valor del cache incluso si ha expirado.
+        Util para fallback cuando la fuente primaria falla.
+
+        Args:
+            key: Clave del cache
+
+        Returns:
+            El valor almacenado o None si no existe
+        """
+        if key in self._cache:
+            value, _ = self._cache[key]
+            return value
         return None
 
     def set(self, key: str, value: Any) -> None:

@@ -2,7 +2,7 @@
 
 **Planificador de viajes inteligente por presupuesto.**
 
-Dale un presupuesto total y tus fechas, y RushTrip encuentra la mejor combinación de vuelo + hotel + auto que se ajusta a tu bolsillo.
+Escribí el nombre de tu ciudad de origen y destino, dale un presupuesto total y RushTrip resuelve automáticamente los aeropuertos, busca vuelos, hoteles y autos, y te presenta la mejor combinación ajustada a tu bolsillo.
 
 ---
 
@@ -10,7 +10,7 @@ Dale un presupuesto total y tus fechas, y RushTrip encuentra la mejor combinaci�
 
 | Capa | Tecnología |
 |------|-----------|
-| Backend | Python 3.11+, FastAPI, Uvicorn |
+| Backend | Python 3.12+, FastAPI, Uvicorn |
 | Frontend | React 18, Vite, Tailwind CSS |
 | APIs externas | Travelpayouts (Aviasales), RapidAPI (Booking.com), Booking.com |
 
@@ -18,12 +18,13 @@ Dale un presupuesto total y tus fechas, y RushTrip encuentra la mejor combinaci�
 
 ## Funcionalidades
 
-- **Plan por presupuesto** — Ingresás origen, destino, fechas y cuánto querés gastar. RushTrip busca vuelos, los combina con hoteles reales y te dice cuál es la mejor opción.
-- **Búsqueda de vuelos** — Consulta precios en Travelpayouts con fallback inteligente: si no hay vuelos en la fecha exacta, busca en todo el mes, y si tampoco, muestra los próximos disponibles.
+- **Plan por presupuesto** — Escribís el nombre de las ciudades (ej: "Bogotá", "Madrid"), las fechas y tu presupuesto. RushTrip resuelve automáticamente los aeropuertos, busca vuelos, los combina con hoteles reales y te dice cuál es la mejor opción.
+- **Resolución automática de aeropuertos** — No necesitás saber códigos IATA. Escribís "Bogotá" y el sistema lo convierte a "BOG" automáticamente. También funciona con códigos IATA si los conocés.
+- **Búsqueda de vuelos** — Consulta precios en Travelpayouts con fallback inteligente: si no hay vuelos en la fecha exacta, busca en todo el mes, y si tampoco, muestra los próximos disponibles. Compara conexiones, directos y distintas aerolíneas.
 - **Hoteles con fotos y precios reales** — Via RapidAPI (Booking.com). Si la API no responde, cae a Travelpayouts con precio estimado.
 - **Alquiler de coches** — Via RapidAPI (Booking.com) con fallback a precios estimados por destino.
-- **Autocomplete de aeropuertos** — Buscá ciudades y aeropuertos por nombre.
-- **Frontend responsive** — Interfaz moderna hecha en React + Tailwind con cards, badges y diseño limpio.
+- **Comparativa por tiers** — Al ver los resultados, podés comparar opciones Económico, Estándar y Premium para elegir según tu presupuesto.
+- **Frontend responsive** — Interfaz moderna hecha en React + Tailwind con cards, badges, diseño limpio y animaciones suaves.
 
 ---
 
@@ -31,38 +32,42 @@ Dale un presupuesto total y tus fechas, y RushTrip encuentra la mejor combinaci�
 
 ```
 RUSHTRIP/
-├── api/
+├── backend/
 │   └── routes/
 │       ├── airports.py    # GET /airports/?q=...
 │       ├── cars.py        # GET /cars/?ciudad=...
 │       ├── flights.py     # GET /flights/?origen=...&destino=...
 │       ├── hotels.py      # GET /hotels/?ciudad=...&checkin=...&checkout=...
-│       └── plan.py        # POST /plan/  ← endpoint principal
+│       └── plan.py        # POST /plan/  ← endpoint principal (acepta nombres de ciudad)
 ├── core/
 │   ├── config.py          # Settings con variables de entorno
-│   ├── http.py            # Cliente HTTP reutilizable
+│   ├── http.py            # Cliente HTTP reutilizable con retry
 │   ├── cache.py           # Utilidades de caché
+│   ├── errors.py          # Errores estructurados
 │   └── logging.py         # Configuración de Loguru
 ├── services/
 │   ├── flights.py         # Búsqueda de vuelos (Travelpayouts)
 │   ├── hotels.py          # Hoteles: RapidAPI → Travelpayouts (fallback)
 │   ├── cars.py            # Coches: RapidAPI → precios estimados (fallback)
-│   ├── airports.py        # Autocomplete de aeropuertos
-│   └── plan.py            # Generador de plan de viaje
+│   ├── airports.py        # Autocomplete de aeropuertos + aeropuertos alternativos
+│   └── plan.py            # Generador de plan de viaje + resolver_iata()
 ├── frontend/
 │   └── src/
-│       ├── api/client.js      # Cliente Axios con proxy a backend
+│       ├── api/client.js      # Cliente Axios con interceptor de errores
 │       ├── components/        # Componentes React
-│       │   ├── PlanResult.jsx
+│       │   ├── AirportInput.jsx     # Autocomplete con auto-selección
+│       │   ├── PlanForm.jsx         # Formulario progresivo 2 pasos
+│       │   ├── PlanResult.jsx       # Resultados con comparativa de tiers
+│       │   ├── SummaryCard.jsx      # Resumen del presupuesto
+│       │   ├── TierComparison.jsx   # Comparación Económico/Estándar/Premium
 │       │   ├── FlightCard.jsx
 │       │   ├── HotelCard.jsx
 │       │   ├── CarCard.jsx
-│       │   ├── PlanForm.jsx
 │       │   └── ...
 │       └── pages/
 │           ├── Landing.jsx
 │           └── Plan.jsx
-├── main.py              # Entry point FastAPI
+├── main.py              # Entry point FastAPI (rate limiting, CSP, manejo global de errores)
 ├── test_api.py          # Tests de integración
 └── requirements.txt
 ```
@@ -124,35 +129,56 @@ El frontend arranca en `http://localhost:5173` con proxy automático al backend.
 
 ### `POST /plan/` — Generar plan de viaje
 
-Endpoint principal. Recibe origen, destino, fechas y presupuesto; devuelve el mejor plan disponible.
+Endpoint principal. Recibe **nombres de ciudad** (o códigos IATA), fechas y presupuesto; resuelve aeropuertos automáticamente y devuelve el mejor plan disponible.
 
 **Request:**
 ```json
 {
-  "origen": "BOG",
-  "destino": "MIA",
+  "origen": "Bogotá",
+  "destino": "Madrid",
   "fecha_salida": "2026-12-15",
   "fecha_regreso": "2026-12-22",
   "presupuesto": 800,
-  "pasajeros": 1
+  "pasajeros": 1,
+  "incluir_hotel": true,
+  "incluir_vehiculo": false,
+  "tier": "estandar"
 }
 ```
 
 **Response:**
 ```json
 {
-  "plan_optimo": { "vuelo": {...}, "hotel": {...}, "total": 750.00, "dentro_presupuesto": true },
+  "origen": "BOG",
+  "destino": "MAD",
+  "ciudad_destino": "Madrid",
+  "fecha_salida": "2026-12-15",
+  "fecha_regreso": "2026-12-22",
+  "noches": 7,
+  "presupuesto": 800.00,
+  "plan_optimo": {
+    "vuelo": {...},
+    "hotel": {...},
+    "coche": {...},
+    "total": 750.00,
+    "dentro_presupuesto": true
+  },
   "alternativas": [...],
   "hoteles": [...],
   "coches": { "coches": [...], "aviso": "..." },
+  "aeropuertos_alternativos": [...],
   "aviso": null,
   "precision": "exacta"
 }
 ```
 
+> **Nota:** `origen` y `destino` aceptan nombres de ciudad (ej: "Bogotá", "Miami") o códigos IATA (ej: "BOG", "MIA"). El backend los resuelve automáticamente.
+
 ### `GET /flights/` — Buscar vuelos
 
 `/flights/?origen=BOG&destino=MIA&fecha_salida=2026-12-15&fecha_regreso=2026-12-22&pasajeros=1`
+
+> Requiere códigos IATA. Usado internamente por el planificador.
 
 ### `GET /hotels/` — Buscar hoteles
 
@@ -164,17 +190,21 @@ Endpoint principal. Recibe origen, destino, fechas y presupuesto; devuelve el me
 
 ### `GET /airports/` — Autocomplete de aeropuertos
 
-`/airports/?q=Mad`
+`/airports/?q=Madrid`
+
+Devuelve aeropuertos/ciudades que coinciden con el término. Usado por el frontend para el autocomplete y por el backend para resolver ciudades a IATA.
 
 ---
 
 ## Cómo funciona el planificador
 
-1. **Busca vuelos** — Consulta Travelpayouts para la ruta y fechas dadas.
-2. **Busca hoteles** — Primero intenta RapidAPI (Booking.com) con fotos y precios reales. Si falla, usa Travelpayouts con precios estimados por destino.
-3. **Empareja hotel-plan** — Para cada vuelo, calcula el presupuesto restante y asigna el mejor hotel real que entre en ese monto.
-4. **Selecciona óptimo** — Elige el plan cuyo costo total se acerque más al presupuesto sin superarlo. Si ninguno cabe, muestra el más barato disponible.
-5. **Busca coches** — Agrega opciones de alquiler en el destino.
+1. **Resuelve ciudades a aeropuertos** — El usuario escribe "Bogotá" y "Madrid". El backend usa la API de Travelpayouts para convertirlos a "BOG" y "MAD" automáticamente.
+2. **Busca vuelos** — Consulta Travelpayouts para la ruta y fechas dadas. Compara directos, conexiones y distintas aerolíneas.
+3. **Busca hoteles** — Primero intenta RapidAPI (Booking.com) con fotos y precios reales. Si falla, usa Travelpayouts con precios estimados por destino.
+4. **Empareja hotel-plan** — Para cada vuelo, calcula el presupuesto restante y asigna el mejor hotel real que entre en ese monto.
+5. **Selecciona óptimo** — Elige el plan cuyo costo total se acerque más al presupuesto sin superarlo. Si ninguno cabe, muestra el más barato disponible.
+6. **Busca coches** — Agrega opciones de alquiler en el destino si queda presupuesto.
+7. **Comparativa por tiers** — El frontend muestra opciones Económico, Estándar y Premium para que el usuario elija según su presupuesto.
 
 ### Estrategia de fallback
 
@@ -183,6 +213,7 @@ Endpoint principal. Recibe origen, destino, fechas y presupuesto; devuelve el me
 | Vuelos | Travelpayouts (fecha exacta) | Travelpayouts (mes) → Travelpayouts (sin fecha) |
 | Hoteles | RapidAPI (Booking.com) | Travelpayouts (precio estimado) |
 | Coches | RapidAPI (Booking.com) | Precios estimados por destino |
+| Resolución ciudad → IATA | Travelpayouts autocomplete | Cache local |
 
 ---
 

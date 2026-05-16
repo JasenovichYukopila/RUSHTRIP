@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import PlanForm from '../components/PlanForm';
 import PlanResult from '../components/PlanResult';
 import LoadingPlane from '../components/LoadingPlane';
@@ -8,7 +8,9 @@ export default function Plan() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [formKey, setFormKey] = useState(0);
   const lastForm = useRef(null);
+  const formRef = useRef(null);
 
   async function handleSubmit(formData) {
     lastForm.current = formData;
@@ -20,11 +22,7 @@ export default function Plan() {
       const result = await createPlan(formData);
       setData(result);
     } catch (err) {
-      const detail = err?.response?.data?.detail;
-      const message =
-        (Array.isArray(detail) ? detail[0]?.msg : detail) ||
-        err?.message ||
-        'Error al conectar con el servidor';
+      const message = err?.userMessage || err?.response?.data?.detail || err?.message || 'Error al conectar con el servidor';
       setError(new Error(message));
     } finally {
       setLoading(false);
@@ -37,10 +35,20 @@ export default function Plan() {
     }
   }
 
+  const handleModify = useCallback(() => {
+    // Force PlanForm remount so it re-reads localStorage and resets to step 1
+    setFormKey((k) => k + 1);
+    setData(null);
+    setError(null);
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }, []);
+
   return (
     <div className="py-12 sm:py-16">
       <div className="max-w-3xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-10">
+        <div className="text-center mb-10" ref={formRef}>
           <h1 className="font-display text-3xl sm:text-4xl text-text">
             Arma tu viaje
           </h1>
@@ -52,7 +60,7 @@ export default function Plan() {
           </div>
         </div>
 
-        <PlanForm onSubmit={handleSubmit} loading={loading} />
+        <PlanForm key={formKey} onSubmit={handleSubmit} loading={loading} />
 
         <div className="mt-10">
           {loading && <LoadingPlane />}
@@ -62,6 +70,7 @@ export default function Plan() {
               error={error}
               loading={false}
               onRetry={handleRetry}
+              onModify={handleModify}
             />
           )}
         </div>

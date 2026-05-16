@@ -12,24 +12,31 @@ from core.http import http_client
 logger = logging.getLogger(__name__)
 
 # Headers fijos para todas las llamadas a RapidAPI
-_RAPID_HEADERS = {
-    "x-rapidapi-key": settings.rapidapi_key,
-    "x-rapidapi-host": settings.rapidapi_host,
-    "Content-Type": "application/json",
-}
+def _rapid_headers() -> dict:
+    """Devuelve headers actualizados para RapidAPI (evita valores stale del import)."""
+    return {
+        "x-rapidapi-key": settings.rapidapi_key,
+        "x-rapidapi-host": settings.rapidapi_host,
+        "Content-Type": "application/json",
+    }
 
-# Precios de referencia por noche en USD según código IATA de la ciudad
+# Precios de referencia por noche en USD segun codigo IATA de la ciudad
 # Usados como fallback cuando la API no responde
+# Fuente unica de verdad: cualquier cambio aqui se refleja en todo el sistema
 PRECIO_REFERENCIA_HOTEL: dict[str, float] = {
     # Colombia
     "BOG": 45,  "MDE": 50,  "CLO": 40,  "CTG": 70,  "BAQ": 45,
-    # México y Caribe
-    "MIA": 120, "MCO": 100, "CUN": 85,  "MEX": 70,  "LIM": 55,
+    # Mexico y Caribe
+    "MIA": 120, "MCO": 100, "CUN": 85,  "MEX": 70,  "GDL": 60,
+    "LIM": 55,  "GYE": 45,  "UIO": 50,  "SDQ": 75,  "HAV": 90,
+    "PTY": 80,  "SJO": 75,  "SCL": 80,  "EZE": 65,  "GRU": 70,
     # Estados Unidos
-    "JFK": 200, "LAX": 170, "ORD": 140, "LAS": 90,  "MAD": 90,
+    "JFK": 200, "LAX": 170, "ORD": 140, "LAS": 90,  "SFO": 190,
+    "BOS": 160, "DCA": 150, "ATL": 110,
     # Europa
-    "BCN": 100, "LHR": 180, "CDG": 160, "FCO": 130, "AMS": 150,
-    "_default": 80,  # Precio por defecto si no está la ciudad
+    "MAD": 90,  "BCN": 100, "LHR": 180, "CDG": 160, "FCO": 130,
+    "AMS": 150, "FRA": 130, "LIS": 95,  "VIE": 110, "ZRH": 200,
+    "_default": 80,
 }
 
 
@@ -81,7 +88,7 @@ async def _buscar_rapidapi(ciudad: str, checkin: str, checkout: str, adultos: in
         r1 = await http_client.get(
             "https://booking-com15.p.rapidapi.com/api/v1/hotels/searchDestination",
             params={"query": ciudad},
-            headers=_RAPID_HEADERS,
+            headers=_rapid_headers(),
         )
         r1.raise_for_status()
         data1 = r1.json()
@@ -109,7 +116,7 @@ async def _buscar_rapidapi(ciudad: str, checkin: str, checkout: str, adultos: in
                 "adults": adultos,
                 "currency_code": "USD",
             },
-            headers=_RAPID_HEADERS,
+            headers=_rapid_headers(),
         )
         r2.raise_for_status()
         data2 = r2.json()
@@ -217,8 +224,8 @@ async def _buscar_rapidapi(ciudad: str, checkin: str, checkout: str, adultos: in
             "hoteles": sorted(hoteles, key=lambda x: x["precio_total"]),
         }
     except Exception as e:
-        logger.warning(f"RapidAPI falló para '{ciudad}': {e}")
-        return None
+        logger.warning(f"RapidAPI fallo para '{ciudad}': {e}")
+        return {"error": f"Error al consultar hoteles: {e}", "hoteles": []}
 
 
 async def _buscar_travelpayouts(ciudad: str, checkin: str, checkout: str, adultos: int) -> dict | None:
@@ -283,8 +290,8 @@ async def _buscar_travelpayouts(ciudad: str, checkin: str, checkout: str, adulto
             }],
         }
     except Exception as e:
-        logger.warning(f"Travelpayouts falló para '{ciudad}': {e}")
-        return None
+        logger.warning(f"Travelpayouts fallo para '{ciudad}': {e}")
+        return {"error": f"Error en fallback de hoteles: {e}", "hoteles": []}
 
 
 async def buscar_hoteles(
@@ -314,12 +321,17 @@ async def buscar_hoteles(
     """
     # Intentar primero con RapidAPI (datos reales)
     resultado = await _buscar_rapidapi(ciudad, checkin, checkout, adultos)
-    if resultado and resultado.get("hoteles"):
+    if resultado and resultado.get("hoteles") and not resultado.get("error"):
         hoteles = resultado["hoteles"]
-        # Aplicar filtro de estrellas si está configurado
+        # Aplicar filtro de estrellas si esta configurado
         hoteles_filtrados = [h for h in hoteles if estrellas_min <= (h.get("estrellas") or 0) <= estrellas_max]
         if not hoteles_filtrados:
-            hoteles_filtrados = hoteles  # Si el filtro es muy estricto, mostrar todos
+            # El filtro no encontro hoteles del tier solicitado, devolver vacio con aviso
+            return {
+                "aviso": f"No se encontraron hoteles de {estrellas_min}-{estrellas_max} estrellas en {ciudad}. Intenta con otro nivel de calidad.",
+                "ciudad": resultado.get("ciudad", ciudad),
+                "hoteles": [],
+            }
         resultado["hoteles"] = hoteles_filtrados
         return resultado
 
@@ -329,10 +341,15 @@ async def buscar_hoteles(
     if resultado and resultado.get("hoteles"):
         return resultado
 
-    # Último recurso: devolver vacío con mensaje
+    # Determinar si fue error de API o sin resultados
+    error_api = isinstance(resultado, dict) and resultado.get("error")
     noches = _calcular_noches(checkin, checkout)
     return {
-        "aviso": f"No se encontraron hoteles para '{ciudad}'.",
+        "aviso": (
+            f"Error al consultar hoteles. Intenta nuevamente." if error_api
+            else f"No se encontraron hoteles para '{ciudad}'."
+        ),
         "ciudad": ciudad,
         "hoteles": [],
+        "error": resultado.get("error") if error_api else None,
     }

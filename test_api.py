@@ -105,6 +105,94 @@ async def test_hotels():
             print(f"  Error: {response.text}")
         print()
 
+async def test_plan():
+    """Probar el endpoint de plan con tier e inclusiones."""
+    async with httpx.AsyncClient() as client:
+        # Test 1: Plan normal con tier premium + vehiculo
+        response = await client.post(
+            f"{BASE_URL}/plan/",
+            json={
+                "origen":           "BOG",
+                "destino":          "MIA",
+                "fecha_salida":     "2026-12-15",
+                "fecha_regreso":    "2026-12-22",
+                "presupuesto":      800,
+                "pasajeros":        1,
+                "incluir_hotel":    True,
+                "incluir_vehiculo": True,
+                "tier":             "premium",
+            }
+        )
+        print("Endpoint POST /plan/ (premium + vehiculo):")
+        print(f"  Status: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            print(f"  Origen: {data.get('origen')}")
+            print(f"  Destino: {data.get('destino')}")
+            print(f"  Precision: {data.get('precision')}")
+            print(f"  Aviso: {data.get('aviso', 'Ninguno')}")
+            if data.get("plan_optimo"):
+                print(f"  Plan optimo total: ${data['plan_optimo'].get('total', 0)}")
+                print(f"  Dentro de presupuesto: {data['plan_optimo'].get('dentro_presupuesto')}")
+            else:
+                print(f"  Plan optimo: None (sin vuelos disponibles)")
+            print(f"  Alternativas: {len(data.get('alternativas', []))}")
+        else:
+            print(f"  Error: {response.text}")
+        print()
+
+        # Test 2: Validacion de tier invalido
+        response = await client.post(
+            f"{BASE_URL}/plan/",
+            json={
+                "origen":        "BOG",
+                "destino":       "MIA",
+                "fecha_salida":  "2026-12-15",
+                "fecha_regreso": "2026-12-22",
+                "presupuesto":   800,
+                "pasajeros":     1,
+                "tier":          "lujo",
+            }
+        )
+        print("Endpoint POST /plan/ (tier invalido):")
+        print(f"  Status: {response.status_code}")
+        print(f"  Detail: {response.json().get('detail', response.text)}")
+        print()
+
+        # Test 3: Validacion de IATA invalido
+        response = await client.post(
+            f"{BASE_URL}/plan/",
+            json={
+                "origen":        "123",
+                "destino":       "MIA",
+                "fecha_salida":  "2026-12-15",
+                "fecha_regreso": "2026-12-22",
+                "presupuesto":   800,
+                "pasajeros":     1,
+            }
+        )
+        print("Endpoint POST /plan/ (IATA invalido '123'):")
+        print(f"  Status: {response.status_code}")
+        print(f"  Detail: {response.json().get('detail', response.text)}")
+        print()
+
+        # Test 4: Fechas invertidas
+        response = await client.post(
+            f"{BASE_URL}/plan/",
+            json={
+                "origen":        "BOG",
+                "destino":       "MIA",
+                "fecha_salida":  "2026-12-22",
+                "fecha_regreso": "2026-12-15",
+                "presupuesto":   800,
+                "pasajeros":     1,
+            }
+        )
+        print("Endpoint POST /plan/ (regreso antes que salida):")
+        print(f"  Status: {response.status_code}")
+        print(f"  Detail: {response.json().get('detail', response.text)}")
+        print()
+
 async def main():
     """Ejecutar todas las pruebas."""
     print("=== Probando RushTrip API ===\n")
@@ -115,6 +203,7 @@ async def main():
         await test_flights()
         await test_hotels()
         await test_cars()
+        await test_plan()
         print("=== Todas las pruebas completadas ===")
     except Exception as e:
         print(f"Error durante las pruebas: {e}")

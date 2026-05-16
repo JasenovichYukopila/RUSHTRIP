@@ -2,7 +2,7 @@ export default function CarCard({ car }) {
   if (!car) return null;
 
   return (
-    <div className="flex items-start gap-4 p-4 bg-card rounded-lg border border-border card-shadow">
+    <div className="flex items-start gap-4 p-4 bg-card rounded-lg border border-border card-shadow hover-lift">
       <div className="w-12 h-12 rounded-lg bg-accent2/10 text-accent2 flex items-center justify-center flex-shrink-0">
         <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5 17 L19 17" />

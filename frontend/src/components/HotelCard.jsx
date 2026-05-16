@@ -1,5 +1,37 @@
 import { useState } from 'react';
 
+function StarRating({ stars }) {
+  const fullStars = Math.min(Math.floor(stars), 5);
+  const hasHalf = stars % 1 >= 0.5;
+  const emptyStars = Math.max(0, 5 - fullStars - (hasHalf ? 1 : 0));
+
+  return (
+    <span className="flex items-center gap-0.5 text-xs">
+      {[...Array(fullStars)].map((_, i) => (
+        <svg key={`f${i}`} viewBox="0 0 16 16" className="w-3.5 h-3.5 text-yellow-500" fill="currentColor">
+          <path d="M8 0L9.796 5.528H15.608L10.906 8.944L12.702 14.472L8 11.056L3.298 14.472L5.094 8.944L0.392 5.528H6.204L8 0Z" />
+        </svg>
+      ))}
+      {hasHalf && (
+        <svg key="h" viewBox="0 0 16 16" className="w-3.5 h-3.5 text-yellow-500" fill="none">
+          <defs>
+            <linearGradient id="halfGrad">
+              <stop offset="50%" stopColor="currentColor" />
+              <stop offset="50%" stopColor="transparent" />
+            </linearGradient>
+          </defs>
+          <path d="M8 0L9.796 5.528H15.608L10.906 8.944L12.702 14.472L8 11.056L3.298 14.472L5.094 8.944L0.392 5.528H6.204L8 0Z" fill="url(#halfGrad)" stroke="currentColor" strokeWidth="0.5" />
+        </svg>
+      )}
+      {[...Array(emptyStars)].map((_, i) => (
+        <svg key={`e${i}`} viewBox="0 0 16 16" className="w-3.5 h-3.5 text-yellow-500/30" fill="none" stroke="currentColor" strokeWidth="0.5">
+          <path d="M8 0L9.796 5.528H15.608L10.906 8.944L12.702 14.472L8 11.056L3.298 14.472L5.094 8.944L0.392 5.528H6.204L8 0Z" />
+        </svg>
+      ))}
+    </span>
+  );
+}
+
 export default function HotelCard({ hotel }) {
   if (!hotel) return null;
 
@@ -11,7 +43,7 @@ export default function HotelCard({ hotel }) {
   const showImg = hotel.foto_url && !imgError;
 
   return (
-    <div className="flex items-start gap-4 p-4 bg-card rounded-lg border border-border card-shadow">
+    <div className="flex items-start gap-4 p-4 bg-card rounded-lg border border-border card-shadow hover-lift">
       {showImg ? (
         <img
           src={hotel.foto_url}
@@ -36,11 +68,7 @@ export default function HotelCard({ hotel }) {
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          {stars > 0 && (
-            <span className="flex text-yellow-500 text-xs">
-              {'★'.repeat(Math.min(stars, 5))}{'☆'.repeat(Math.max(0, 5 - stars))}
-            </span>
-          )}
+          {stars > 0 && <StarRating stars={stars} />}
           {rating > 0 && (
             <span className="text-xs text-muted">
               {[hotel.reviewScoreWord, Number(rating).toFixed(1), hotel.reviewCount ? `${Number(hotel.reviewCount).toLocaleString('es')} opiniones` : ''].filter(Boolean).join(' · ')}

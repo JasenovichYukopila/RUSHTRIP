@@ -4,7 +4,7 @@
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from services.plan import generar_plan
+from services.plan import generar_plan, resolver_iata
 from datetime import datetime
 import re
 
@@ -29,19 +29,44 @@ class PlanRequest(BaseModel):
         fecha_regreso: Fecha de regreso en formato YYYY-MM-DD
         presupuesto: Presupuesto total en USD
         pasajeros: Número de pasajeros (1-9)
+        incluir_hotel: Si True, incluye búsqueda de hoteles
+        incluir_vehiculo: Si True, incluye búsqueda de coches de alquiler
+        tier: Nivel de calidad del viaje (economico/estandar/premium)
     """
-    origen:        str   = Field(..., min_length=3, max_length=3, description="Código IATA origen (ej: BOG)")
-    destino:       str   = Field(..., min_length=3, max_length=3, description="Código IATA destino (ej: MIA)")
+    origen:        str   = Field(..., min_length=2, max_length=50, description="Ciudad o código IATA de origen (ej: Bogotá o BOG)")
+    destino:       str   = Field(..., min_length=2, max_length=50, description="Ciudad o código IATA de destino (ej: Madrid o MAD)")
     fecha_salida:  str   = Field(..., description="Fecha de salida YYYY-MM-DD")
     fecha_regreso: str   = Field(..., description="Fecha de regreso YYYY-MM-DD")
     presupuesto:   float = Field(..., gt=0, description="Presupuesto total en USD")
     pasajeros:     int   = Field(1, ge=1, le=9, description="Número de pasajeros")
+    incluir_hotel: bool  = Field(True, description="Incluir búsqueda de hoteles en el plan")
+    incluir_vehiculo: bool = Field(False, description="Incluir búsqueda de coches de alquiler")
+    tier:          str   = Field("estandar", description="Nivel de calidad: economico, estandar, premium")
+    modo:          str   = Field("exacto", description="Modo de busqueda: exacto o flexible")
+    duracion_dias: int   = Field(7, ge=1, le=14, description="Duracion en dias (modo flexible)")
 
     @field_validator("origen", "destino")
     @classmethod
-    def iata_upper(cls, v: str) -> str:
-        """Convierte códigos IATA a mayúsculas y elimina espacios."""
-        return v.upper().strip()
+    def ciudad_upper(cls, v: str) -> str:
+        """Normaliza el texto de ciudad: mayúsculas y sin espacios extra."""
+        return v.strip().upper()
+
+    @field_validator("tier")
+    @classmethod
+    def validar_tier(cls, v: str) -> str:
+        """Valida que el tier sea uno de los valores permitidos."""
+        v = v.lower().strip()
+        if v not in ("economico", "estandar", "premium"):
+            raise ValueError("Tier invalido. Use: economico, estandar, premium")
+        return v
+
+    @field_validator("modo")
+    @classmethod
+    def validar_modo(cls, v: str) -> str:
+        v = v.lower().strip()
+        if v not in ("exacto", "flexible"):
+            raise ValueError("Modo invalido. Use: exacto, flexible")
+        return v
 
     @field_validator("fecha_salida", "fecha_regreso")
     @classmethod
@@ -55,15 +80,18 @@ class PlanRequest(BaseModel):
             raise ValueError("Fecha inválida")
         return v
 
-    model_config = {
+        model_config = {
         "json_schema_extra": {
             "example": {
-                "origen":        "BOG",
-                "destino":       "MIA",
-                "fecha_salida":  "2026-12-15",
-                "fecha_regreso": "2026-12-22",
-                "presupuesto":   800,
-                "pasajeros":     1,
+                "origen":           "Bogotá",
+                "destino":          "Madrid",
+                "fecha_salida":     "2026-12-15",
+                "fecha_regreso":    "2026-12-22",
+                "presupuesto":      800,
+                "pasajeros":        1,
+                "incluir_hotel":    True,
+                "incluir_vehiculo": False,
+                "tier":             "estandar",
             }
         }
     }
@@ -75,20 +103,24 @@ class PlanRequest(BaseModel):
     description="""
     Genera el plan de viaje más ajustado a tu presupuesto.
 
-    El sistema busca vuelos disponibles y los combina con el estimado de hotel
+    El sistema busca vuelos, hoteles y coches disponibles y los combina
     para encontrar la combinación óptima dentro de tu presupuesto total.
 
     - **origen**: Código IATA de la ciudad de origen (ej: BOG)
     - **destino**: Código IATA de la ciudad de destino (ej: MIA)
     - **fecha_salida**: Fecha de salida en formato YYYY-MM-DD
     - **fecha_regreso**: Fecha de regreso en formato YYYY-MM-DD
-    - **presupuesto**: Presupuesto total en USD (vuelo + hotel)
+    - **presupuesto**: Presupuesto total en USD
     - **pasajeros**: Número de pasajeros (default: 1)
+    - **incluir_hotel**: Si se debe incluir hotel en el plan (default: true)
+    - **incluir_vehiculo**: Si se debe incluir coche de alquiler (default: false)
+    - **tier**: Calidad del viaje: economico, estandar o premium (default: estandar)
 
     Devuelve:
-    - **plan_optimo**: La mejor combinación vuelo + hotel dentro del presupuesto
+    - **plan_optimo**: La mejor combinación vuelo + hotel + coche dentro del presupuesto
     - **alternativas**: Hasta 2 opciones adicionales para comparar
-    - **hoteles**: Links a Booking.com para buscar hoteles en el destino
+    - **hoteles**: Lista de hoteles reales encontrados en el destino
+    - **coches**: Opciones de alquiler de coches disponibles
     - **precision**: Qué tan exactos son los precios (exacta / mes / aproximada)
     - **aviso**: Mensaje informativo si no hay resultados exactos
     """,
@@ -98,30 +130,44 @@ async def crear_plan(body: PlanRequest):
     """
     Endpoint principal de RushTrip: genera un plan de viaje por presupuesto.
 
+    Soporta dos modos:
+    - exacto: requiere fecha_salida y fecha_regreso exactas
+    - flexible: busca los dias mas baratos dentro del mes de fecha_salida,
+                usando duracion_dias para calcular el regreso
+
     Args:
-        body: Objeto PlanRequest con los parámetros del viaje
+        body: Objeto PlanRequest con origen, destino, fechas, presupuesto,
+              pasajeros, incluir_hotel, incluir_vehiculo, tier y modo
 
     Returns:
         Dict con plan_optimo, alternativas, hoteles, coches, aviso y precision
-
-    Raises:
-        HTTPException 422: Si las fechas son inválidas o el rango es muy largo
     """
-    # Validar que las fechas sean coherentes
-    salida  = datetime.strptime(body.fecha_salida,  "%Y-%m-%d")
-    regreso = datetime.strptime(body.fecha_regreso, "%Y-%m-%d")
+    # Modo flexible: solo requiere fecha_salida (mes) y duracion_dias
+    if body.modo == "flexible":
+        from datetime import timedelta
+        salida = datetime.strptime(body.fecha_salida, "%Y-%m-%d")
+        regreso = salida + timedelta(days=body.duracion_dias)
+        fecha_salida = body.fecha_salida
+        fecha_regreso = regreso.strftime("%Y-%m-%d")
+    else:
+        fecha_salida = body.fecha_salida
+        fecha_regreso = body.fecha_regreso
 
-    if regreso <= salida:
-        raise HTTPException(
-            status_code=422,
-            detail="La fecha de regreso debe ser posterior a la de salida."
-        )
+        # Validar que las fechas sean coherentes
+        salida  = datetime.strptime(body.fecha_salida,  "%Y-%m-%d")
+        regreso = datetime.strptime(body.fecha_regreso, "%Y-%m-%d")
 
-    if (regreso - salida).days > 30:
-        raise HTTPException(
-            status_code=422,
-            detail="El rango entre salida y regreso no puede superar 30 días."
-        )
+        if regreso <= salida:
+            raise HTTPException(
+                status_code=422,
+                detail="La fecha de regreso debe ser posterior a la de salida."
+            )
+
+        if (regreso - salida).days > 30:
+            raise HTTPException(
+                status_code=422,
+                detail="El rango entre salida y regreso no puede superar 30 dias."
+            )
 
     # Validar que origen y destino sean diferentes
     if body.origen == body.destino:
@@ -130,14 +176,26 @@ async def crear_plan(body: PlanRequest):
             detail="El origen y el destino no pueden ser la misma ciudad."
         )
 
+    # Resolver ciudad/aeropuerto a código IATA
+    try:
+        origen_iata = await resolver_iata(body.origen)
+        destino_iata = await resolver_iata(body.destino)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     # Generar el plan de viaje usando el servicio
     resultado = await generar_plan(
-        origen=        body.origen,
-        destino=       body.destino,
-        fecha_salida=  body.fecha_salida,
-        fecha_regreso= body.fecha_regreso,
-        presupuesto=   body.presupuesto,
-        pasajeros=     body.pasajeros,
+        origen=           origen_iata,
+        destino=          destino_iata,
+        fecha_salida=     fecha_salida,
+        fecha_regreso=    fecha_regreso,
+        presupuesto=      body.presupuesto,
+        pasajeros=        body.pasajeros,
+        incluir_hotel=    body.incluir_hotel,
+        incluir_vehiculo= body.incluir_vehiculo,
+        tier=             body.tier,
+        modo=             body.modo,
+        duracion_dias=    body.duracion_dias,
     )
 
     return resultado
