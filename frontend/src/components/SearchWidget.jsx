@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export default function SearchWidget() {
   const [status, setStatus] = useState('loading');
+  const [errorDetail, setErrorDetail] = useState('');
+  const moduleScriptRef = useRef(null);
 
   useEffect(() => {
-    // Check if widget already loaded
     const searchEl = document.getElementById('tpwl-search');
     const ticketsEl = document.getElementById('tpwl-tickets');
     if (searchEl?.children?.length || ticketsEl?.children?.length) {
@@ -12,33 +13,49 @@ export default function SearchWidget() {
       return;
     }
 
-    // Remove any previously created tpwidg scripts on remount
     document.querySelectorAll('script[src*="tpwidg.com"]').forEach((s) => s.remove());
 
-    // Inject the official Travelpayouts inline script with all required attributes
-    const script = document.createElement('script');
-    script.setAttribute('nowprocket', '');
-    script.setAttribute('data-noptimize', '1');
-    script.setAttribute('data-cfasync', 'false');
-    script.setAttribute('data-wpfc-render', 'false');
-    script.setAttribute('seraph-accel-crit', '1');
-    script.setAttribute('data-no-defer', '1');
-    script.textContent = `
+    // Inject inline script that creates the module script
+    const inlineScript = document.createElement('script');
+    inlineScript.setAttribute('nowprocket', '');
+    inlineScript.setAttribute('data-noptimize', '1');
+    inlineScript.setAttribute('data-cfasync', 'false');
+    inlineScript.setAttribute('data-wpfc-render', 'false');
+    inlineScript.setAttribute('seraph-accel-crit', '1');
+    inlineScript.setAttribute('data-no-defer', '1');
+    inlineScript.textContent = `
       (function () {
-        var script = document.createElement("script");
-        script.async = 1;
-        script.type = "module";
-        script.src = "https://tpwidg.com/wl_web/main.js?wl_id=17242";
-        document.head.appendChild(script);
+        var s = document.createElement("script");
+        s.async = 1;
+        s.type = "module";
+        s.src = "https://tpwidg.com/wl_web/main.js?wl_id=17242";
+        s.onerror = function() {
+          document.dispatchEvent(new CustomEvent('tpwidg:error', { detail: 'Module script failed to load' }));
+        };
+        s.onload = function() {
+          document.dispatchEvent(new CustomEvent('tpwidg:load'));
+        };
+        document.head.appendChild(s);
+        window.__tpwidgScript = s;
       })();
     `;
-    document.head.appendChild(script);
+    document.head.appendChild(inlineScript);
 
-    // Polling: wait for the widget to render into the divs
+    // Listen for custom events from the inline script
+    function onError(e) {
+      setErrorDetail(e.detail || 'Error desconocido');
+    }
+    document.addEventListener('tpwidg:error', onError);
+
+    // Detect if we're on localhost (most widgets block localhost)
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    // Polling: check if widget rendered into the divs
     const checkLoaded = () => {
       const s = document.getElementById('tpwl-search');
       const t = document.getElementById('tpwl-tickets');
-      if (s?.children?.length || t?.children?.length) {
+      const hasContent = (s?.children?.length > 0) || (t?.children?.length > 0);
+      if (hasContent) {
         setStatus('loaded');
         return true;
       }
@@ -49,25 +66,45 @@ export default function SearchWidget() {
       if (checkLoaded()) {
         clearInterval(pollInterval);
       }
-    }, 500);
+    }, 1000);
 
-    // Fallback: if nothing loads after 8 seconds, show error
+    // Timeout after 15s
     const timeout = setTimeout(() => {
       clearInterval(pollInterval);
-      setStatus((s) => (s === 'loading' ? 'error' : s));
-    }, 8000);
+      setStatus((s) => {
+        if (s === 'loading') {
+          // Check if the module script element exists but didn't fire events
+          const moduleScript = document.querySelector('script[src*="tpwidg.com"]');
+          if (moduleScript && !isLocalhost) {
+            return 'error';
+          }
+          return 'error';
+        }
+        return s;
+      });
+      // Log diagnostic info to console
+      console.debug('[SearchWidget] Timeout reached. Diagnostic info:', {
+        isLocalhost,
+        hasModuleScript: !!document.querySelector('script[src*="tpwidg.com"]'),
+        searchChildren: document.getElementById('tpwl-search')?.children?.length || 0,
+        ticketsChildren: document.getElementById('tpwl-tickets')?.children?.length || 0,
+        inlineScriptInHead: !!document.querySelector('script[nowprocket]'),
+      });
+    }, 15000);
 
     return () => {
       clearInterval(pollInterval);
       clearTimeout(timeout);
-      // Remove the inline wrapper script
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
+      document.removeEventListener('tpwidg:error', onError);
+      if (inlineScript.parentNode) {
+        inlineScript.parentNode.removeChild(inlineScript);
       }
-      // Remove any dynamically created module scripts from tpwidg
       document.querySelectorAll('script[src*="tpwidg.com"]').forEach((s) => s.remove());
     };
   }, []);
+
+  const isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   return (
     <section className="py-16 sm:py-24">
@@ -85,21 +122,36 @@ export default function SearchWidget() {
         </div>
 
         <div className="bg-surface rounded-xl card-shadow p-6 sm:p-8 border border-border">
-          {/* Loading overlay: shown only while loading */}
           {status === 'loading' && (
             <div className="flex flex-col items-center justify-center py-10">
               <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-4" />
               <p className="text-sm text-muted animate-pulse">Cargando buscador...</p>
+              {isLocalhost && (
+                <p className="text-xs text-warning/70 mt-3 max-w-sm text-center">
+                  ⚠️ Estás en localhost. Algunos widgets externos solo se activan en dominio público.
+                  Puede que veas el mensaje de error aunque funcione en producción.
+                </p>
+              )}
             </div>
           )}
 
-          {/* Error fallback */}
           {status === 'error' && (
             <div className="text-center py-6">
-              <p className="text-sm text-muted mb-4">
-                El buscador no pudo cargarse. Puedes buscar directamente en:
+              <p className="text-sm text-muted mb-2">
+                El buscador no pudo cargarse.
               </p>
-              <div className="flex flex-wrap justify-center gap-3">
+              {errorDetail && (
+                <p className="text-xs text-warning/70 mb-4 font-mono">
+                  {errorDetail}
+                </p>
+              )}
+              {isLocalhost && (
+                <p className="text-xs text-warning/70 mb-4 max-w-sm mx-auto">
+                  ⚠️ Los widgets de Travelpayouts suelen bloquear localhost.
+                  Sube el proyecto a un dominio público para que funcione.
+                </p>
+              )}
+              <div className="flex flex-wrap justify-center gap-3 mt-3">
                 <a
                   href="https://www.aviasales.com"
                   target="_blank"
@@ -120,7 +172,6 @@ export default function SearchWidget() {
             </div>
           )}
 
-          {/* Travelpayouts widget containers: always in DOM so the script can find them */}
           <div id="tpwl-search" className="min-h-[120px]" />
           <div className="separator my-6">
             <span className="text-accent2 text-xs">✦</span>
