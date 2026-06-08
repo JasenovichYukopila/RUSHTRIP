@@ -118,6 +118,12 @@ def link_compra(link: str, marker: str) -> str:
     return f"https://www.aviasales.com{link}{sep}marker={marker}"
 
 
+def link_compra_fallback(origen: str, destino: str, fecha_salida: str, marker: str) -> str:
+    """Genera link de busqueda Aviasales para vuelos estimados."""
+    fecha_num = fecha_salida.replace("-", "")
+    return f"https://www.aviasales.com/search/{origen.upper()}{destino.upper()}{fecha_num}?marker={marker}"
+
+
 def _mes_desde_fecha(fecha: str) -> str:
     """Extrae el año-mes de una fecha YYYY-MM-DD → YYYY-MM"""
     return fecha[:7]
@@ -190,7 +196,7 @@ def _estimar_vuelo(origen: str, destino: str, fecha_salida: str, fecha_regreso: 
             "precio_total":       round(pax_precio * pasajeros, 2),
             "pasajeros":          pasajeros,
             "co2_kg":             co2_kg,
-            "link_compra":        "",
+            "link_compra":        link_compra_fallback(origen, destino, fecha_salida, settings.travelpayouts_marker),
             "tipo":               "estimado",
         })
 

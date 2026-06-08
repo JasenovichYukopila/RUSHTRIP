@@ -109,6 +109,10 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
         f"&currency=USD"
     )
 
+    # Links de afiliados para coches
+    link_localrent = f"https://localrent.tpo.li/Gfm1966A"
+    link_economybookings = f"https://economybookings.tpo.li/sAJAcIdv"
+
     # Catalogo de vehiculos predefinidos con precios escalados
     coches = [
         {
@@ -121,6 +125,8 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": link_base,
+            "link_localrent": link_localrent,
+            "link_economybookings": link_economybookings,
             "foto_url": "",
         },
         {
@@ -133,6 +139,8 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": link_base,
+            "link_localrent": link_localrent,
+            "link_economybookings": link_economybookings,
             "foto_url": "",
         },
         {
@@ -145,6 +153,8 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": link_base,
+            "link_localrent": link_localrent,
+            "link_economybookings": link_economybookings,
             "foto_url": "",
         },
         {
@@ -157,13 +167,15 @@ def _generar_fallback(iata: str, pickup_date: str | None, dropoff_date: str | No
             "moneda": "USD",
             "proveedor": "Local",
             "link_reserva": link_base,
+            "link_localrent": link_localrent,
+            "link_economybookings": link_economybookings,
             "foto_url": "",
         },
     ]
     return {
         "ciudad": iata,
         "coches": coches,
-        "aviso": "Precios estimados basados en tarifas promedio de la zona.",
+        "aviso": "Precios estimados basados en tarifas promedio de la zona. Reserva directa via Localrent o EconomyBookings.",
     }
 
 

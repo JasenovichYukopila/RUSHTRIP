@@ -23,7 +23,7 @@ export default function LoadingPlane() {
     <div className="flex flex-col items-center py-16">
       <div className="flex flex-col items-center justify-center mb-10 w-full max-w-sm">
         <div className="relative w-64 sm:w-80">
-          <div className="h-px w-full bg-border relative overflow-hidden rounded-full">
+          <div className="h-px w-full bg-border/50 relative overflow-hidden rounded-full">
             <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-transparent via-accent/40 to-transparent animate-flyPlane" />
           </div>
           <svg
@@ -40,7 +40,6 @@ export default function LoadingPlane() {
           </svg>
         </div>
 
-        {/* Step progress */}
         <div className="w-full mt-8">
           <div className="flex justify-between mb-2">
             {STEPS.map((_, i) => (
@@ -59,7 +58,8 @@ export default function LoadingPlane() {
           </div>
           <p
             key={stepIndex}
-            className="mt-3 text-sm text-muted font-medium text-center animate-popIn"
+            className="mt-3 text-sm text-muted font-medium text-center"
+            style={{ animation: 'fadeSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
           >
             {STEPS[stepIndex]}
           </p>

@@ -8,7 +8,7 @@ function StarRating({ stars, large = false }) {
   const size = large ? 'w-5 h-5' : 'w-3.5 h-3.5';
 
   return (
-    <span className="flex items-center gap-0.5">
+    <span className="inline-flex items-center gap-0.5">
       {[...Array(fullStars)].map((_, i) => (
         <svg key={`f${i}`} viewBox="0 0 16 16" className={`${size} text-yellow-500`} fill="currentColor">
           <path d="M8 0L9.796 5.528H15.608L10.906 8.944L12.702 14.472L8 11.056L3.298 14.472L5.094 8.944L0.392 5.528H6.204L8 0Z" />
@@ -26,7 +26,7 @@ function StarRating({ stars, large = false }) {
         </svg>
       )}
       {[...Array(emptyStars)].map((_, i) => (
-        <svg key={`e${i}`} viewBox="0 0 16 16" className={`${size} text-yellow-500/30`} fill="none" stroke="currentColor" strokeWidth="0.5">
+        <svg key={`e${i}`} viewBox="0 0 16 16" className={`${size} text-yellow-500/25`} fill="none" stroke="currentColor" strokeWidth="0.5">
           <path d="M8 0L9.796 5.528H15.608L10.906 8.944L12.702 14.472L8 11.056L3.298 14.472L5.094 8.944L0.392 5.528H6.204L8 0Z" />
         </svg>
       ))}
@@ -62,8 +62,9 @@ function Lightbox({ images, currentIndex, onClose }) {
       <button
         onClick={onClose}
         className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 text-white/80 hover:text-white hover:bg-white/20 flex items-center justify-center transition-all z-10"
+        aria-label="Cerrar"
       >
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
@@ -73,20 +74,22 @@ function Lightbox({ images, currentIndex, onClose }) {
           <button
             onClick={(e) => { e.stopPropagation(); goPrev(); }}
             className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white/80 hover:text-white hover:bg-white/20 flex items-center justify-center transition-all z-10"
+            aria-label="Anterior"
           >
-            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M15 18L9 12L15 6" />
             </svg>
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); goNext(); }}
             className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white/80 hover:text-white hover:bg-white/20 flex items-center justify-center transition-all z-10"
+            aria-label="Siguiente"
           >
-            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M9 18L15 12L9 6" />
             </svg>
           </button>
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/50 text-white/80 text-sm px-4 py-1.5 rounded-full">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/50 text-white/80 text-sm px-4 py-1.5 rounded-full backdrop-blur-sm">
             {idx + 1} / {images.length}
           </div>
         </>
@@ -104,7 +107,7 @@ function Lightbox({ images, currentIndex, onClose }) {
   );
 }
 
-export default function HotelCard({ hotel }) {
+export default function HotelCard({ hotel, variant = 'default' }) {
   if (!hotel) return null;
 
   const [imgIndex, setImgIndex] = useState(0);
@@ -128,9 +131,45 @@ export default function HotelCard({ hotel }) {
   const rating = hotel.rating || 0;
   const amenities = hotel.amenities?.filter(Boolean) || [];
 
+  if (variant === 'compact') {
+    return (
+      <div className="flex items-center gap-3 card-base p-3">
+        {currentFoto && !imgErrors[currentFoto] ? (
+          <div className="w-16 h-12 rounded-lg overflow-hidden shrink-0 bg-accent/5">
+            <img
+              src={currentFoto}
+              alt={hotel.nombre}
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          </div>
+        ) : (
+          <div className="w-16 h-12 rounded-lg bg-accent/10 shrink-0 flex items-center justify-center">
+            <svg viewBox="0 0 20 20" className="w-5 h-5 text-accent/50" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2 18 L18 18" /><path d="M4 18 L4 6 L10 2 L16 6 L16 18" /><path d="M8 18 L8 10 L12 10 L12 18" />
+            </svg>
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-text truncate">{hotel.nombre}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {stars > 0 && <StarRating stars={stars} />}
+            {rating > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-success/15 text-success text-[10px] font-bold">{Number(rating).toFixed(1)}</span>
+            )}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          {hotel.precio_noche > 0 && (
+            <p className="font-mono text-accent font-semibold text-sm">${Number(hotel.precio_noche).toFixed(0)}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-card rounded-xl border border-border card-shadow hover-lift overflow-hidden">
-      {/* Main image area */}
+    <div className="card-base overflow-hidden">
       <div
         className="relative aspect-[3/2] bg-accent/5 cursor-pointer group overflow-hidden"
         onClick={() => openLightbox(imgIndex)}
@@ -151,21 +190,19 @@ export default function HotelCard({ hotel }) {
                 imgLoaded[currentFoto] ? 'opacity-100' : 'opacity-0'
               }`}
             />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-300" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </>
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-accent/10 text-accent">
             <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 21 L21 21" />
-              <path d="M5 21 L5 7 L12 3 L19 7 L19 21" />
-              <path d="M9 21 L9 12 L15 12 L15 21" />
+              <path d="M3 21 L21 21" /><path d="M5 21 L5 7 L12 3 L19 7 L19 21" /><path d="M9 21 L9 12 L15 12 L15 21" />
             </svg>
           </div>
         )}
 
         {fotos.length > 1 && (
-          <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" strokeWidth="2">
+          <div className="absolute bottom-2 right-2 bg-black/50 text-white text-[10px] px-2.5 py-1 rounded-full backdrop-blur-sm flex items-center gap-1">
+            <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
               <circle cx="12" cy="13" r="4" />
             </svg>
@@ -180,15 +217,16 @@ export default function HotelCard({ hotel }) {
         )}
       </div>
 
-      {/* Thumbnails gallery */}
       {fotos.length > 1 && (
-        <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto">
+        <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto no-scrollbar">
           {fotos.map((url, i) => (
             <button
               key={`${url}-${i}`}
               onClick={() => setImgIndex(i)}
-              className={`relative w-14 h-10 rounded-md overflow-hidden flex-shrink-0 border-2 transition-all ${
-                i === imgIndex ? 'border-accent' : 'border-transparent opacity-60 hover:opacity-100'
+              className={`relative w-16 h-10 rounded-lg overflow-hidden shrink-0 ring-2 transition-all duration-200 ${
+                i === imgIndex
+                  ? 'ring-accent ring-offset-1'
+                  : 'ring-transparent opacity-60 hover:opacity-100'
               }`}
             >
               <img
@@ -203,85 +241,112 @@ export default function HotelCard({ hotel }) {
         </div>
       )}
 
-      {/* Info section */}
       <div className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-text text-sm sm:text-base leading-tight truncate">
-              {hotel.nombre}
-            </h3>
-            <div className="flex items-center gap-2 mt-1">
-              {stars > 0 && <StarRating stars={stars} />}
-              <span className="text-xs text-muted">{stars > 0 ? `${stars}★` : ''}</span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-medium text-text text-sm sm:text-base leading-tight truncate">
+                  {hotel.nombre}
+                </h3>
+                {hotel.tipo === 'estimado' && (
+                  <span className="badge bg-accent/10 text-accent border border-accent/20 text-[10px] shrink-0">Cotización</span>
+                )}
+                {hotel.tipo === 'recomendado' && (
+                  <span className="badge bg-success/15 text-success border border-success/20 text-[10px] shrink-0">Recomendado</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                {stars > 0 && <StarRating stars={stars} />}
+                {stars > 0 && <span className="text-xs text-muted-300">{stars}★</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {hotel.link_kkday && (
+                <a
+                  href={hotel.link_kkday}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-outline text-[10px] py-1 px-2 whitespace-nowrap"
+                  title="Reservar en KKday"
+                >
+                  KKday
+                </a>
+              )}
+              {hotel.link_klook && (
+                <a
+                  href={hotel.link_klook}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-outline text-[10px] py-1 px-2 whitespace-nowrap"
+                  title="Reservar en Klook"
+                >
+                  Klook
+                </a>
+              )}
+              {hotel.link_reserva && (
+                <a
+                  href={hotel.link_reserva}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-outline text-xs py-1.5 px-3 whitespace-nowrap"
+                >
+                  Booking
+                </a>
+              )}
             </div>
           </div>
-          {hotel.link_reserva && (
-            <a
-              href={hotel.link_reserva}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-outline text-xs shrink-0 whitespace-nowrap"
-            >
-              Reservar →
-            </a>
-          )}
-        </div>
 
-        {/* Rating + Review count */}
         {rating > 0 && (
           <div className="flex items-center gap-2 mt-2">
             <span className="px-2 py-0.5 rounded-md bg-success/15 text-success text-xs font-bold">
               {Number(rating).toFixed(1)}
             </span>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-muted-300">
               <span className="font-medium text-text">{hotel.reviewScoreWord || ''}</span>
               {hotel.reviewCount ? ` · ${Number(hotel.reviewCount).toLocaleString('es')} opiniones` : ''}
             </div>
           </div>
         )}
 
-        {/* Amenities */}
         {amenities.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3">
             {amenities.slice(0, 4).map((a, i) => (
-              <span key={i} className="px-2 py-0.5 bg-accent/5 text-accent2 text-[10px] font-medium rounded-md border border-accent2/10">
+              <span key={i} className="px-2 py-0.5 bg-accent2/8 text-accent2-600 text-[10px] font-medium rounded-md border border-accent2/15">
                 {a}
               </span>
             ))}
             {amenities.length > 4 && (
-              <span className="px-2 py-0.5 text-muted text-[10px]">+{amenities.length - 4}</span>
+              <span className="px-2 py-0.5 text-muted-300 text-[10px]">+{amenities.length - 4}</span>
             )}
           </div>
         )}
 
-        {/* Price */}
-        <div className="flex items-baseline gap-2 mt-3 pt-3 border-t border-border/50">
+        <div className="flex items-baseline gap-2 mt-3 pt-3 border-t border-border-50">
           {hotel.precio_noche > 0 && (
             <span className="font-mono text-accent font-bold text-lg">
               ${Number(hotel.precio_noche).toFixed(0)}
-              <span className="text-xs text-muted font-normal">/noche</span>
+              <span className="text-xs text-muted-300 font-normal">/noche</span>
             </span>
           )}
           {hotel.precio_total > 0 && (
-            <span className="text-xs text-muted">
-              = ${Number(hotel.precio_total).toFixed(0)} total
+            <span className="text-xs text-muted-300">
+              · ${Number(hotel.precio_total).toFixed(0)} total
               {hotel.noches ? ` · ${hotel.noches} noche${hotel.noches > 1 ? 's' : ''}` : ''}
             </span>
           )}
         </div>
 
         {hotel.adultos > 0 && (
-          <p className="text-xs text-muted mt-1">
+          <p className="text-xs text-muted-300 mt-1">
             {hotel.adultos} adulto{hotel.adultos > 1 ? 's' : ''}
           </p>
         )}
 
         {hotel.por_que && (
-          <p className="text-xs text-muted mt-2 italic leading-relaxed">{hotel.por_que}</p>
+          <p className="text-xs text-muted-300 mt-2 italic leading-relaxed">{hotel.por_que}</p>
         )}
       </div>
 
-      {/* Lightbox */}
       {lightboxOpen && fotos.length > 0 && (
         <Lightbox
           images={fotos}

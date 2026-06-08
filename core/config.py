@@ -15,11 +15,15 @@ class Settings(BaseSettings):
       RAPIDAPI_KEY_1, RAPIDAPI_KEY_2, ...
     """
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     travelpayouts_token:  str = ""
     travelpayouts_marker: str = ""
 
     rapidapi_key:         str = ""
     rapidapi_host:        str = "booking-com15.p.rapidapi.com"
+
+    pexels_api_key:       str = ""
 
     cors_origins:         str = "*"
     debug:                bool = True

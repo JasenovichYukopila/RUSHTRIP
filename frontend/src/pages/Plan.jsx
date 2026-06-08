@@ -1,54 +1,48 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import PlanForm from '../components/PlanForm';
 import PlanResult from '../components/PlanResult';
 import LoadingPlane from '../components/LoadingPlane';
-import { createPlan } from '../api/client';
 
 export default function Plan() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [formKey, setFormKey] = useState(0);
-  const lastForm = useRef(null);
-  const formRef = useRef(null);
 
-  async function handleSubmit(formData) {
-    lastForm.current = formData;
-    setLoading(true);
+  function handlePlanCreated(result) {
+    setData(result);
     setError(null);
-    setData(null);
+  }
 
-    try {
-      const result = await createPlan(formData);
-      setData(result);
-    } catch (err) {
-      const message = err?.userMessage || err?.response?.data?.detail || err?.message || 'Error al conectar con el servidor';
-      setError(new Error(message));
-    } finally {
-      setLoading(false);
-    }
+  function handlePlanError(err) {
+    setError(err);
+    setData(null);
+    setLoading(false);
+  }
+
+  function handlePlanLoading(isLoading) {
+    setLoading(isLoading);
   }
 
   async function handleRetry() {
-    if (lastForm.current) {
-      await handleSubmit(lastForm.current);
-    }
+    setError(null);
+    setData(null);
+    setFormKey((k) => k + 1);
   }
 
   const handleModify = useCallback(() => {
-    // Force PlanForm remount so it re-reads localStorage and resets to step 1
     setFormKey((k) => k + 1);
     setData(null);
     setError(null);
     setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelector('.plan-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
   }, []);
 
   return (
     <div className="py-12 sm:py-16">
       <div className="max-w-3xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-10" ref={formRef}>
+        <div className="text-center mb-10">
           <h1 className="font-display text-3xl sm:text-4xl text-text">
             Arma tu viaje
           </h1>
@@ -60,7 +54,12 @@ export default function Plan() {
           </div>
         </div>
 
-        <PlanForm key={formKey} onSubmit={handleSubmit} loading={loading} />
+        <PlanForm
+          key={formKey}
+          onPlanCreated={handlePlanCreated}
+          onPlanError={handlePlanError}
+          onPlanLoading={handlePlanLoading}
+        />
 
         <div className="mt-10">
           {loading && <LoadingPlane />}

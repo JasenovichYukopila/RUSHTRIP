@@ -1,28 +1,20 @@
 # services/hotels.py
-# Servicio de búsqueda de hoteles con fallback doble (RapidAPI → Travelpayouts → estimado)
-# Utiliza Booking.com como fuente principal de datos
+# Servicio de búsqueda de hoteles con fallback multiple
+# Travelpayouts → KKday/Klook → Booking.com deep links → datos estimados
 
-import json
 import logging
 import re
 from datetime import date
 from core.config import settings
 from core.http import http_client
 from core.database_cache import cache_get, cache_get_stale, cache_set
+from core.cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
-# Headers fijos para todas las llamadas a RapidAPI
-def _rapid_headers() -> dict:
-    """Devuelve headers actualizados para RapidAPI (evita valores stale del import)."""
-    return {
-        "x-rapidapi-key": settings.rapidapi_key,
-        "x-rapidapi-host": settings.rapidapi_host,
-        "Content-Type": "application/json",
-    }
-
-# Cache TTL en segundos (24 horas para hoteles)
+# Cache TTL en segundos (24 horas para hoteles, 1 hora para fotos)
 _CACHE_TTL = 24 * 3600
+_PEXELS_CACHE = TTLCache(ttl_seconds=3600)
 
 
 def _cache_key(ciudad: str, checkin: str, checkout: str, adultos: int, estrellas_min: int, estrellas_max: int) -> str:
@@ -129,256 +121,103 @@ def _slug_hotel(nombre: str) -> str:
     return re.sub(r'[^a-z0-9]+', '-', nombre.lower()).strip('-')
 
 
-async def _buscar_rapidapi(ciudad: str, checkin: str, checkout: str, adultos: int) -> dict | None:
-    """
-    Busca hoteles reales usando la API de Booking.com via RapidAPI.
-
-    Proceso en 2 pasos:
-      1. Buscar destination_id de la ciudad
-      2. Buscar hoteles disponibles en esa ciudad
-
-    Args:
-        ciudad: Nombre de la ciudad a buscar
-        checkin: Fecha de entrada (YYYY-MM-DD)
-        checkout: Fecha de salida (YYYY-MM-DD)
-        adultos: Número de adultos
-
-    Returns:
-        Dict con hoteles encontrados o None si falla la API
-    """
-    try:
-        # Paso 1: Obtener destination_id para la ciudad
-        r1 = await http_client.get(
-            "https://booking-com15.p.rapidapi.com/api/v1/hotels/searchDestination",
-            params={"query": ciudad},
-            headers=_rapid_headers(),
-        )
-        r1.raise_for_status()
-        data1 = r1.json()
-
-        if not data1.get("status"):
-            return None
-
-        dests = data1.get("data", [])
-        if not dests:
-            return None
-
-        # Tomar el primer resultado (más relevante)
-        dest_id = dests[0].get("dest_id")
-        nombre_ciudad = dests[0].get("name") or dests[0].get("city_name", ciudad)
-        country_code = dests[0].get("cc1", "")
-
-        # Paso 2: Buscar hoteles en esa ciudad
-        r2 = await http_client.get(
-            "https://booking-com15.p.rapidapi.com/api/v1/hotels/searchHotels",
-            params={
-                "dest_id": dest_id,
-                "search_type": "city",
-                "arrival_date": checkin,
-                "departure_date": checkout,
-                "adults": adultos,
-                "currency_code": "USD",
-            },
-            headers=_rapid_headers(),
-        )
-        r2.raise_for_status()
-        data2 = r2.json()
-
-        if not data2.get("status"):
-            return None
-
-        # Extraer lista de hoteles de la respuesta
-        raw = data2.get("data", {})
-        hoteles_raw = raw.get("hotels", [])
-        if not isinstance(hoteles_raw, list):
-            hoteles_raw = []
-
-        noches = _calcular_noches(checkin, checkout)
-        hoteles = []
-
-        for i, h in enumerate(hoteles_raw):
-            if not isinstance(h, dict):
-                continue
-            prop = h.get("property", h)
-
-            # Log de debug para el primer hotel (para debugging)
-            if i == 0 and logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Hotel raw: {json.dumps(h, default=str)[:2000]}")
-
-            # Extraer precio de diferentes fuentes posibles
-            pb = prop.get("priceBreakdown", {})
-            gross = pb.get("grossPrice", {})
-            precio_noche = float(gross.get("value", prop.get("price", 0)))
-            if not precio_noche:
-                precio_noche = float(prop.get("minPrice", 0))
-
-            precio_total = round(precio_noche * noches, 2)
-            hotel_id = prop.get("id", h.get("hotel_id", ""))
-            hotel_name = prop.get("name", "Hotel")
-
-            # Extraer fotos del hotel (hasta 5) de diferentes formatos posibles
-            fotos_urls = []
-            fotos_raw = (
-                prop.get("photoUrls")
-                or prop.get("photos")
-                or prop.get("images")
-                or []
+async def _enriquecer_con_fotos(ciudad: str, hoteles: list) -> list:
+    """Obtiene fotos reales del destino via Pexels API y las asigna a los hoteles."""
+    if not settings.pexels_api_key:
+        return hoteles
+    cache_key = f"pexels_{ciudad.lower().replace(' ', '_')}"
+    fotos = _PEXELS_CACHE.get(cache_key)
+    if fotos is None:
+        try:
+            res = await http_client.get(
+                "https://api.pexels.com/v1/search",
+                params={"query": f"{ciudad} hotel", "per_page": 4, "orientation": "landscape"},
+                headers={"Authorization": settings.pexels_api_key},
             )
-            if fotos_raw and isinstance(fotos_raw, list):
-                for f in fotos_raw[:5]:
-                    if isinstance(f, str) and f.startswith(("http://", "https://")):
-                        fotos_urls.append(f)
-                    elif isinstance(f, dict):
-                        url = f.get("url", f.get("path", ""))
-                        if url and url.startswith(("http://", "https://")):
-                            fotos_urls.append(url)
-
-            foto_url = fotos_urls[0] if fotos_urls else ""
-            # Fallback para foto si no se encontró
-            if not foto_url:
-                fotos_urls = []
-                foto_url = (
-                    prop.get("image")
-                    or prop.get("photo_url")
-                    or prop.get("mainPhoto")
-                    or prop.get("heroImage")
-                    or ""
-                )
-            # Último fallback: placeholder con nombre del hotel
-            if not foto_url:
-                foto_url = f"https://placehold.co/600x400?text={hotel_name.replace(' ', '+')}"
-                fotos_urls = [foto_url]
-
-            # Extraer amenities de la respuesta (si existen)
-            amenities = []
-            raw_amenities = (
-                prop.get("amenities")
-                or prop.get("facilities")
-                or prop.get("hotelFacilities")
-                or []
-            )
-            if raw_amenities and isinstance(raw_amenities, list):
-                for a in raw_amenities:
-                    if isinstance(a, str):
-                        amenities.append(a)
-                    elif isinstance(a, dict):
-                        amenities.append(a.get("name") or a.get("label") or "")
-
-            # Generar link de reserva en Booking.com
-            if country_code and hotel_id:
-                link = (
-                    f"https://www.booking.com/hotel/{country_code}/{hotel_id}.html"
-                    f"?checkin={checkin}&checkout={checkout}"
-                    f"&group_adults={adultos}&selected_currency=USD"
-                )
-            else:
-                link = (
-                    f"https://www.booking.com/searchresults.html?"
-                    f"dest_id={dest_id}&dest_type=city&checkin={checkin}"
-                    f"&checkout={checkout}&group_adults={adultos}"
-                    f"&selected_currency=USD"
-                )
-                if hotel_id:
-                    link += f"&hotel_id={hotel_id}"
-
-            logger.debug(f"Link generado: {link}")
-
-            # Agregar hotel al resultado
-            hoteles.append({
-                "nombre": hotel_name,
-                "estrellas": prop.get("qualityClass", prop.get("accuratePropertyClass", 0)),
-                "rating": prop.get("reviewScore", 0),
-                "reviewScoreWord": prop.get("reviewScoreWord", ""),
-                "reviewCount": prop.get("reviewCount", 0),
-                "foto_url": foto_url,
-                "fotos_urls": fotos_urls,
-                "precio_noche": precio_noche,
-                "precio_total": precio_total,
-                "noches": noches,
-                "adultos": adultos,
-                "moneda": prop.get("currency", "USD"),
-                "link_reserva": link,
-                "por_que": "",  # Campo vacío para hoteles reales
-                "tipo": "real",  # Marca como hotel real (vs estimado)
-                "amenities": amenities,
-            })
-
-        return {
-            "aviso": None,
-            "ciudad": nombre_ciudad or ciudad,
-            "hoteles": sorted(hoteles, key=lambda x: x["precio_total"]),
-            "precision": "exacta",
-        }
-    except Exception as e:
-        logger.warning(f"RapidAPI fallo para '{ciudad}': {e}")
-        return {"error": f"Error al consultar hoteles: {e}", "hoteles": []}
+            data = res.json()
+            fotos = [p["src"]["medium"] for p in data.get("photos", [])]
+            _PEXELS_CACHE.set(cache_key, fotos)
+        except Exception as e:
+            logger.warning(f"Pexels API fallo para '{ciudad}': {e}")
+            fotos = []
+    for h in hoteles:
+        h["foto_url"] = fotos[0] if fotos else f"https://placehold.co/600x400?text={h['nombre'].replace(' ', '+')}"
+        h["fotos_urls"] = fotos if fotos else []
+    return hoteles
 
 
-async def _buscar_travelpayouts(ciudad: str, checkin: str, checkout: str, adultos: int) -> dict | None:
-    """
-    Busca hoteles usando Travelpayouts como fallback cuando RapidAPI falla.
-    Devuelve un único hotel estimado con precio de referencia.
-
-    Args:
-        ciudad: Nombre de la ciudad
-        checkin: Fecha de entrada
-        checkout: Fecha de salida
-        adultos: Número de adultos
-
-    Returns:
-        Dict con hotel estimado o None si falla
-    """
+async def _buscar_ciudad(ciudad: str) -> dict | None:
+    """Obtiene info de una ciudad via Travelpayouts autocomplete."""
     try:
-        # Buscar código IATA de la ciudad
         res = await http_client.get(
             "https://autocomplete.travelpayouts.com/places2",
             params={"term": ciudad, "locale": "es", "types": "city"},
         )
         res.raise_for_status()
         data = res.json()
-
         if not data:
             return None
-
         city = data[0]
-        nombre = city.get("name", ciudad)
-        codigo = city.get("code", "")
-        pais = city.get("country_name", "")
-
-        noches = _calcular_noches(checkin, checkout)
-        precio_noche = _precio_referencia(codigo)
-        precio_total = round(precio_noche * noches, 2)
-
-        # Generar link de búsqueda en Booking.com
-        link = (
-            f"https://www.booking.com/searchresults.html?"
-            f"ss={nombre.replace(' ', '+')}&checkin={checkin}"
-            f"&checkout={checkout}&group_adults={adultos}"
-            f"&selected_currency=USD"
-        )
-
         return {
-            "aviso": None,
-            "ciudad": f"{nombre}, {pais}".strip(", "),
-            "precision": "estimada",
-            "hoteles": [{
-                "nombre": f"Hoteles en {nombre}",
-                "estrellas": 3,
-                "rating": 0,
-                "foto_url": "",
-                "precio_noche": precio_noche,
-                "precio_total": precio_total,
-                "noches": noches,
-                "adultos": adultos,
-                "moneda": "USD",
-                "link_reserva": link,
-                "por_que": "Precio estimado basado en tarifas promedio de la zona.",
-                "tipo": "estimado",  # Marca como hotel estimado
-            }],
+            "nombre": city.get("name", ciudad),
+            "codigo": city.get("code", ""),
+            "pais": city.get("country_name", ""),
         }
     except Exception as e:
-        logger.warning(f"Travelpayouts fallo para '{ciudad}': {e}")
-        return {"error": f"Error en fallback de hoteles: {e}", "hoteles": []}
+        logger.warning(f"Travelpayouts autocomplete fallo para '{ciudad}': {e}")
+        return None
+
+
+def _generar_hoteles_afiliados(
+    ciudad: str,
+    codigo: str,
+    pais: str,
+    checkin: str,
+    checkout: str,
+    adultos: int,
+    noches: int,
+    precio_noche: float,
+) -> list[dict]:
+    """Genera hoteles con precios de referencia + links de afiliado Booking/KKday/Klook."""
+    base_booking = (
+        f"https://www.booking.com/searchresults.html?"
+        f"ss={ciudad.replace(' ', '+')}&checkin={checkin}"
+        f"&checkout={checkout}&group_adults={adultos}&selected_currency=USD"
+    )
+
+    categorias = [
+        ("Hotel Céntrico", 3, 7.5, "Bien", 50, 0.9),
+        ("Hotel Boutique", 4, 8.0, "Muy bien", 100, 1.0),
+        ("Hotel Ejecutivo", 4, 8.5, "Excelente", 150, 1.15),
+        ("Resort Premium", 5, 9.0, "Excelente", 200, 1.3),
+    ]
+
+    hoteles = []
+    for nombre, estrellas, rating, score_word, reviews, factor in categorias:
+        full_name = f"{nombre} en {ciudad}"
+        pn = round(precio_noche * factor, 2)
+        pt = round(pn * noches, 2)
+        hoteles.append({
+            "nombre": full_name,
+            "estrellas": estrellas,
+            "rating": rating,
+            "reviewScoreWord": score_word,
+            "reviewCount": reviews,
+            "foto_url": f"https://placehold.co/600x400?text={full_name.replace(' ', '+')}",
+            "fotos_urls": [],
+            "precio_noche": pn,
+            "precio_total": pt,
+            "noches": noches,
+            "adultos": adultos,
+            "moneda": "USD",
+            "link_reserva": base_booking,
+            "link_kkday": f"https://kkday.tpo.li/zHk5IFqZ?dest={ciudad.lower().replace(' ', '-')}",
+            "link_klook": f"https://klook.tpo.li/GBfSCVf0?dest={ciudad.lower().replace(' ', '-')}",
+            "por_que": "Precio de referencia basado en tarifas promedio de la zona.",
+            "tipo": "estimado",
+            "amenities": [],
+        })
+    return hoteles
 
 
 async def buscar_hoteles(
@@ -391,11 +230,10 @@ async def buscar_hoteles(
     q: str = "",
 ) -> dict:
     """
-    Busca hoteles con estrategia de 4 niveles:
+    Busca hoteles con estrategia de niveles:
       1. Cache persistente SQLite
-      2. RapidAPI (Booking.com) → datos reales
-      3. Travelpayouts → hotel estimado con precio de referencia
-      4. Datos estimados locales
+      2. Travelpayouts + precios de referencia + links afiliados (KKday/Klook/Booking)
+      3. Datos estimados locales
 
     Args:
         ciudad: Nombre de la ciudad
@@ -416,6 +254,7 @@ async def buscar_hoteles(
     if cached is not None:
         logger.debug(f"Cache hit para hoteles: {cache_key}")
         hoteles = cached["hoteles"]
+        hoteles = await _enriquecer_con_fotos(cached.get("ciudad", ciudad), hoteles)
         if q:
             q_lower = q.lower()
             hoteles = [h for h in hoteles if q_lower in h.get("nombre", "").lower()]
@@ -425,48 +264,40 @@ async def buscar_hoteles(
             "hoteles": hoteles,
         }
 
-    # Nivel 1: RapidAPI (datos reales)
-    resultado = await _buscar_rapidapi(ciudad, checkin, checkout, adultos)
-    if resultado and resultado.get("hoteles") and not resultado.get("error"):
-        hoteles = resultado["hoteles"]
-        hoteles_filtrados = [h for h in hoteles if estrellas_min <= (h.get("estrellas") or 0) <= estrellas_max]
-        if not hoteles_filtrados:
-            cache_set(cache_key, resultado, provider="rapidapi", ttl_seconds=_CACHE_TTL)
-            return {
-                "aviso": f"No se encontraron hoteles de {estrellas_min}-{estrellas_max} estrellas en {ciudad}. Intenta con otro nivel de calidad.",
-                "ciudad": resultado.get("ciudad", ciudad),
-                "hoteles": [],
-            }
-        resultado["hoteles"] = hoteles_filtrados
-        cache_set(cache_key, resultado, provider="rapidapi", ttl_seconds=_CACHE_TTL)
-        if q:
-            q_lower = q.lower()
-            hoteles_filtrados = [h for h in hoteles_filtrados if q_lower in h.get("nombre", "").lower()]
+    # Nivel 1: Travelpayouts autocomplete + precios de referencia + links afiliados
+    logger.info(f"Buscando hoteles para '{ciudad}' via Travelpayouts + afiliados")
+    city_info = await _buscar_ciudad(ciudad)
+    nombre_ciudad = city_info["nombre"] if city_info else ciudad
+    codigo = city_info["codigo"] if city_info else ""
+    pais = city_info["pais"] if city_info else ""
+
+    noches = _calcular_noches(checkin, checkout)
+    precio_noche = _precio_referencia(codigo) if codigo else _precio_referencia(ciudad)
+
+    hoteles = _generar_hoteles_afiliados(
+        nombre_ciudad, codigo, pais, checkin, checkout, adultos, noches, precio_noche
+    )
+
+    hoteles = await _enriquecer_con_fotos(nombre_ciudad, hoteles)
+
+    hoteles_filtrados = [h for h in hoteles if estrellas_min <= (h.get("estrellas") or 0) <= estrellas_max]
+    if not hoteles_filtrados:
         return {
-            "aviso": resultado.get("aviso"),
-            "ciudad": resultado.get("ciudad", ciudad),
-            "hoteles": hoteles_filtrados,
+            "aviso": f"No se encontraron hoteles de {estrellas_min}-{estrellas_max} estrellas en {nombre_ciudad}.",
+            "ciudad": nombre_ciudad,
+            "hoteles": [],
         }
 
-    # Nivel 2: Travelpayouts (hotel estimado con precio de referencia)
-    logger.info(f"Fallback a Travelpayouts para '{ciudad}'")
-    resultado = await _buscar_travelpayouts(ciudad, checkin, checkout, adultos)
-    if resultado and resultado.get("hoteles"):
-        resultado["precision"] = "estimada"
-        cache_set(cache_key, resultado, provider="travelpayouts", ttl_seconds=_CACHE_TTL)
-        return resultado
+    if q:
+        q_lower = q.lower()
+        hoteles_filtrados = [h for h in hoteles_filtrados if q_lower in h.get("nombre", "").lower()]
 
-    # Intentar cache stale si API falló
-    stale = cache_get_stale(cache_key)
-    if stale is not None:
-        stale["aviso"] = "Mostrando datos de cache previo. Los precios pueden no estar actualizados."
-        stale["precision"] = "stale"
-        return stale
+    resultado = {
+        "aviso": "Mostrando precios de referencia. Los precios reales pueden variar. Reserva directa via KKday, Klook o Booking.",
+        "ciudad": nombre_ciudad,
+        "hoteles": hoteles_filtrados,
+        "precision": "estimada",
+    }
 
-    # Nivel 3: Datos estimados locales (0 llamadas API)
-    logger.warning(f"API de hoteles no disponible para '{ciudad}', usando datos estimados")
-    iata = resultado.get("codigo_iata", "") if isinstance(resultado, dict) else ""
-    estimados = _estimar_hoteles(ciudad, checkin, checkout, adultos, iata=iata)
-    estimados["precision"] = "estimada"
-    cache_set(cache_key, estimados, provider="reference", ttl_seconds=_CACHE_TTL)
-    return estimados
+    cache_set(cache_key, resultado, provider="travelpayouts", ttl_seconds=_CACHE_TTL)
+    return resultado

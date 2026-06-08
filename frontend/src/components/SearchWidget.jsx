@@ -107,78 +107,62 @@ export default function SearchWidget() {
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   return (
-    <section className="py-16 sm:py-24">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-3xl sm:text-4xl text-text">
-            Busca vuelos y hoteles
-          </h2>
-          <p className="mt-3 text-muted text-base sm:text-lg">
-            Encuentra las mejores opciones para tu viaje
+    <div className="card-base p-6 sm:p-8">
+      {status === 'loading' && (
+        <div className="flex flex-col items-center justify-center py-10">
+          <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-4" />
+          <p className="text-sm text-muted animate-pulse">Cargando buscador...</p>
+          {isLocalhost && (
+            <p className="text-xs text-warning/70 mt-3 max-w-sm text-center">
+              ⚠️ Estás en localhost. Algunos widgets externos solo se activan en dominio público.
+              Puede que veas el mensaje de error aunque funcione en producción.
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="text-center py-6">
+          <p className="text-sm text-muted mb-2">
+            El buscador no pudo cargarse.
           </p>
-          <div className="separator mt-6 max-w-xs mx-auto">
-            <span className="text-accent text-sm">✈</span>
+          {errorDetail && (
+            <p className="text-xs text-warning/70 mb-4 font-mono">
+              {errorDetail}
+            </p>
+          )}
+          {isLocalhost && (
+            <p className="text-xs text-warning/70 mb-4 max-w-sm mx-auto">
+              ⚠️ Los widgets de Travelpayouts suelen bloquear localhost.
+              Sube el proyecto a un dominio público para que funcione.
+            </p>
+          )}
+          <div className="flex flex-wrap justify-center gap-3 mt-3">
+            <a
+              href="https://www.aviasales.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-outline text-sm"
+            >
+              Buscar vuelos en Aviasales →
+            </a>
+            <a
+              href="https://www.booking.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-outline text-sm"
+            >
+              Buscar hoteles en Booking →
+            </a>
           </div>
         </div>
+      )}
 
-        <div className="bg-surface rounded-xl card-shadow p-6 sm:p-8 border border-border">
-          {status === 'loading' && (
-            <div className="flex flex-col items-center justify-center py-10">
-              <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-4" />
-              <p className="text-sm text-muted animate-pulse">Cargando buscador...</p>
-              {isLocalhost && (
-                <p className="text-xs text-warning/70 mt-3 max-w-sm text-center">
-                  ⚠️ Estás en localhost. Algunos widgets externos solo se activan en dominio público.
-                  Puede que veas el mensaje de error aunque funcione en producción.
-                </p>
-              )}
-            </div>
-          )}
-
-          {status === 'error' && (
-            <div className="text-center py-6">
-              <p className="text-sm text-muted mb-2">
-                El buscador no pudo cargarse.
-              </p>
-              {errorDetail && (
-                <p className="text-xs text-warning/70 mb-4 font-mono">
-                  {errorDetail}
-                </p>
-              )}
-              {isLocalhost && (
-                <p className="text-xs text-warning/70 mb-4 max-w-sm mx-auto">
-                  ⚠️ Los widgets de Travelpayouts suelen bloquear localhost.
-                  Sube el proyecto a un dominio público para que funcione.
-                </p>
-              )}
-              <div className="flex flex-wrap justify-center gap-3 mt-3">
-                <a
-                  href="https://www.aviasales.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-outline text-sm"
-                >
-                  Buscar vuelos en Aviasales →
-                </a>
-                <a
-                  href="https://www.booking.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-outline text-sm"
-                >
-                  Buscar hoteles en Booking →
-                </a>
-              </div>
-            </div>
-          )}
-
-          <div id="tpwl-search" className="min-h-[120px]" />
-          <div className="separator my-6">
-            <span className="text-accent2 text-xs">✦</span>
-          </div>
-          <div id="tpwl-tickets" className="min-h-[120px]" />
-        </div>
+      <div id="tpwl-search" className="min-h-[120px]" />
+      <div className="separator my-6">
+        <span className="text-accent2 text-xs">✦</span>
       </div>
-    </section>
+      <div id="tpwl-tickets" className="min-h-[120px]" />
+    </div>
   );
 }

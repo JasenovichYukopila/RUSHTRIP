@@ -1,207 +1,236 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { searchAirports } from '../api/client';
 
-const DEBOUNCE_MS = 250;
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="9" cy="9" r="5.5" />
+      <path d="M13 13 L17.5 17.5" />
+    </svg>
+  );
+}
 
-export default function AirportInput({
-  label,
-  placeholder = 'Buscar ciudad o aeropuerto...',
-  value,
-  onChange,
-  onSelect,
-  error,
-  disabled,
-}) {
+function Spinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.2" />
+      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10 L8 14 L16 6" />
+    </svg>
+  );
+}
+
+function FlagIcon({ code }) {
+  if (!code) return null;
+  const flag = code.slice(0, 2).toLowerCase();
+  return (
+    <span className="text-base leading-none w-5 text-center shrink-0" aria-hidden="true">
+      {String.fromCodePoint(...[...flag].map(c => 0x1F1E6 + c.charCodeAt(0) - 97))}
+    </span>
+  );
+}
+
+export default function AirportInput({ label, value, onChange, placeholder = 'Buscar aeropuerto...', disabled = false }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(null);
-  const containerRef = useRef(null);
-  const timerRef = useRef(null);
-  const interactionRef = useRef(false); // true = user clicked dropdown item manually
-  const blurTimerRef = useRef(null);
+  const [userInteracted, setUserInteracted] = useState(false);
+  const [error, setError] = useState(false);
 
-  // When external value changes (e.g., form reset), update display
+  const ref = useRef(null);
+  const debounceRef = useRef(null);
+
   useEffect(() => {
-    if (!value) {
-      setQuery('');
+    if (value && value !== selected) {
+      setSelected(value);
+      setQuery(typeof value === 'string' ? value : _readItemName(value));
+    } else if (!value && selected) {
       setSelected(null);
-      interactionRef.current = false;
+      setQuery('');
     }
-  }, [value]);
+  }, [value, selected]);
 
-  // Close dropdown on outside click
+  const doSearch = useCallback(async (q) => {
+    if (!q || q.length < 1) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(false);
+    try {
+      const data = await searchAirports({ q, locale: 'es', limit: 8 });
+      const items = Array.isArray(data) ? data : data?.results || data?.data || [];
+      setResults(items);
+      if (items.length > 0) {
+        setOpen(true);
+      }
+    } catch {
+      setError(true);
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setUserInteracted(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(val), 250);
+    if (selected) {
+      setSelected(null);
+    }
+    onChange(null, null);
+  };
+
+  function _readItemCode(item) {
+    return item.code || item.iata || item.codigo || '';
+  }
+  function _readItemName(item) {
+    return item.name || item.nombre || item.city_name || item.city || '';
+  }
+  function _readItemCountry(item) {
+    return item.country_name || item.pais || item.country || '';
+  }
+
+  const handleSelect = (item) => {
+    const code = _readItemCode(item);
+    const name = _readItemName(item);
+    const country = _readItemCountry(item);
+    setSelected(item);
+    setQuery(`${name} (${code})`);
+    setOpen(false);
+    setUserInteracted(false);
+    onChange(item, code);
+  };
+
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+    if (!open || userInteracted || results.length === 0 || selected || query.length < 2) return;
+    const timer = setTimeout(() => {
+      if (!userInteracted && results.length > 0 && !selected && query.length >= 2) {
+        handleSelect(results[0]);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [open, results, userInteracted, selected, query, handleSelect]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
         setOpen(false);
       }
-    }
+    };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const autoSelectTop = useCallback((items) => {
-    if (!interactionRef.current && items && items.length > 0 && query.length >= 2) {
-      const top = items[0];
-      setSelected(top);
-      setQuery(`${top.nombre} (${top.codigo})`);
-      setOpen(false);
-      onSelect(top.codigo, top.nombre);
-      interactionRef.current = true; // mark as handled so we don't re-select
-    }
-  }, [query, onSelect]);
-
-  const fetchAirports = useCallback(async (q) => {
-    if (q.length < 2) {
-      setResults([]);
-      setOpen(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await searchAirports({ q });
-      setResults(data || []);
-      const hasResults = data && data.length > 0;
-      // Auto-select top result if user hasn't explicitly chosen yet
-      if (hasResults && !interactionRef.current) {
-        autoSelectTop(data);
-      } else {
-        setOpen(hasResults);
-      }
-    } catch {
-      setResults([]);
-      setOpen(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [autoSelectTop]);
-
-  function handleInputChange(e) {
-    const val = e.target.value;
-    setQuery(val);
-    setSelected(null);
-    interactionRef.current = false;
-    onChange(val); // send raw text so backend can resolve city name too
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      fetchAirports(val);
-    }, DEBOUNCE_MS);
-  }
-
-  function handleSelect(item) {
-    interactionRef.current = true;
-    setSelected(item);
-    setQuery(`${item.nombre} (${item.codigo})`);
-    setOpen(false);
-    onSelect(item.codigo, item.nombre);
-  }
-
-  function handleFocus() {
-    if (results.length > 0 && query.length >= 2) {
-      setOpen(true);
-    }
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === 'Escape') {
-      setOpen(false);
-    }
-    // Enter auto-selects first result
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (results.length > 0) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Enter' && results.length > 0) {
         handleSelect(results[0]);
       }
-    }
-  }
-
-  function handleBlur() {
-    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-    blurTimerRef.current = setTimeout(() => {
-      if (!selected && query.length >= 2 && results.length > 0) {
-        autoSelectTop(results);
-      } else if (!selected && query.length >= 2 && !loading && results.length === 0) {
-        // No results found - pass raw text to backend for resolution
-        // onChange already sent the raw query above
-      }
-      setOpen(false);
-    }, 150);
-  }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, results]);
 
   return (
-    <div ref={containerRef} className="relative">
-      <label className="block text-sm font-medium text-text mb-1.5">
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-medium text-muted-500 mb-1.5">
         {label}
       </label>
       <div className="relative">
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-300 pointer-events-none">
+          {loading ? <Spinner /> : selected ? <CheckIcon /> : <SearchIcon />}
+        </div>
         <input
           type="text"
           value={query}
-          onChange={handleInputChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
+          onChange={handleChange}
+          onFocus={() => results.length > 0 && setOpen(true)}
           placeholder={placeholder}
           disabled={disabled}
-          className={`input-field pr-10 ${
-            error ? 'ring-2 ring-warning/40 border-warning' : ''
-          } ${selected ? 'bg-accent/5' : ''}`}
+          className={`input-field pl-10 ${
+            disabled
+              ? 'opacity-50 cursor-not-allowed'
+              : error
+                ? 'ring-2 ring-error/15 border-error/50'
+                : selected
+                  ? 'border-accent/50 bg-accent/[0.02]'
+                  : ''
+          }`}
           autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-label={label}
         />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted/60">
-          {loading ? (
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.3" />
-              <path d="M12 2 A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-            </svg>
-          ) : selected ? (
-            <svg viewBox="0 0 24 24" className="w-4 h-4 text-success" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M5 12 L10 17 L19 8" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21 L16.65 16.65" />
-            </svg>
-          )}
-        </div>
+        {selected && (
+          <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-accent/10 rounded text-xs font-mono text-accent font-medium">
+              <span>{_readItemCode(selected)}</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {error && <p className="mt-1 text-xs text-warning">{error}</p>}
-
       {open && results.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full bg-surface rounded-xl border border-border card-shadow-lg max-h-60 overflow-y-auto animate-fadeSlideUp">
-          {results.map((item, i) => (
-            <button
-              key={`${item.codigo}-${i}`}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()} // prevent input blur before click
-              onClick={() => handleSelect(item)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-card transition-colors border-b border-border/50 last:border-b-0"
-            >
-              <div className="w-8 h-8 rounded-lg bg-accent/10 text-accent flex items-center justify-center flex-shrink-0 text-xs font-mono font-medium">
-                {item.codigo}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-text truncate">{item.nombre}</p>
-                <p className="text-xs text-muted">{item.pais}</p>
-              </div>
-              <svg viewBox="0 0 24 24" className="w-4 h-4 text-accent/50" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M5 12 H19" />
-                <path d="M14 7 L19 12 L14 17" />
-              </svg>
-            </button>
-          ))}
+        <div className="absolute z-30 mt-1.5 w-full bg-white rounded-xl border border-border-200 card-shadow-lg overflow-hidden animate-fade-slide-up">
+          <div className="py-1 max-h-64 overflow-y-auto">
+            {results.map((item, i) => {
+              const code = _readItemCode(item);
+              const name = _readItemName(item);
+              const country = _readItemCountry(item);
+              const isActive = selected && (_readItemCode(selected) === code);
+              return (
+                <button
+                  key={`${code}-${i}`}
+                  onClick={() => handleSelect(item)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors duration-150 ${
+                    isActive
+                      ? 'bg-accent/5 text-accent'
+                      : 'hover:bg-card text-text'
+                  }`}
+                >
+                  <FlagIcon code={country} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm truncate">{name}</span>
+                      <span className="font-mono text-xs text-muted-300 shrink-0">{code}</span>
+                    </div>
+                    {country && (
+                      <p className="text-xs text-muted-300 truncate mt-0.5">{country}</p>
+                    )}
+                  </div>
+                  <svg className="w-4 h-4 text-muted-200 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M7 4 L14 10 L7 16" />
+                  </svg>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {open && query.length >= 2 && !loading && results.length === 0 && (
-        <div className="absolute z-50 mt-1 w-full bg-surface rounded-xl border border-border card-shadow p-4 text-center animate-fadeSlideUp">
-          <p className="text-sm text-muted">No se encontraron aeropuertos para &quot;{query}&quot;</p>
-          <p className="text-xs text-muted mt-1">Lo resolveremos del lado del servidor</p>
+      {open && !loading && results.length === 0 && query.length > 0 && !error && (
+        <div className="absolute z-30 mt-1.5 w-full bg-white rounded-xl border border-border-200 card-shadow-lg overflow-hidden animate-fade-slide-up">
+          <div className="px-4 py-6 text-center text-sm text-muted-300">
+            <p>No encontramos ese aeropuerto.</p>
+            <p className="text-xs mt-1">Prueba con el nombre de la ciudad o el código IATA.</p>
+          </div>
         </div>
       )}
     </div>
