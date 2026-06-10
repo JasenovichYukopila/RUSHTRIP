@@ -18,4 +18,4 @@ skills-lock.json
 .ruff_cache/
 *.egg-info/
 .vercel/
-API.md
+cache/
