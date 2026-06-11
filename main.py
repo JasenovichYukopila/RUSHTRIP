@@ -10,6 +10,7 @@ from backend.routes.hotels   import router as hotels_router
 from backend.routes.cars     import router as cars_router
 from backend.routes.plan     import router as plan_router
 from backend.routes.weather  import router as weather_router
+from backend.routes.activities import router as activities_router
 from core.config import settings
 from core.errors import AppError, ExternalAPIError
 from core.logging import setup_logging
@@ -75,6 +76,10 @@ app = FastAPI(
         {
             "name":        "Clima",
             "description": "Pronóstico y clima típico del destino (Open-Meteo)"
+        },
+        {
+            "name":        "Actividades",
+            "description": "Mejores actividades y atracciones del destino (OpenTripMap)"
         },
     ]
 )
@@ -190,6 +195,7 @@ app.include_router(flights_router)
 app.include_router(hotels_router)
 app.include_router(cars_router)
 app.include_router(weather_router)
+app.include_router(activities_router)
 
 # ── Health check ─────────────────────────────────────────────────────────
 @app.get("/health", tags=["Root"])

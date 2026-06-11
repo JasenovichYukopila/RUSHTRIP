@@ -24,6 +24,7 @@ Escribí el nombre de tu ciudad de origen y destino, dale un presupuesto total y
 - **Hoteles con fotos y precios reales** — Via Hotels.nl API (datos reales con fotos, precios, ratings). Fallback a precios estimados por destino si no hay API key configurada. Las fotos se complementan con Pexels.
 - **Alquiler de coches** — Via RapidAPI con fallback a precios estimados por destino y links de afiliado a Localrent/EconomyBookings.
 - **Clima del destino** — Pronóstico real día a día para los días exactos del viaje (Open-Meteo, sin API key). Para fechas a más de 16 días muestra el clima típico calculado con datos históricos reales de años anteriores.
+- **Mejores actividades del destino** — Puntos de interés reales ordenados por relevancia turística (OpenTripMap, key gratuita opcional) con categoría, precio orientativo y links de reserva via Klook/KKday. Sin key, muestra una selección curada por destino. Las actividades son recomendaciones informativas: no entran en el cálculo del presupuesto.
 - **Comparativa por tiers** — Al ver los resultados, podés comparar opciones Económico, Estándar y Premium para elegir según tu presupuesto.
 - **Frontend responsive** — Interfaz moderna hecha en React + Tailwind con cards, badges, diseño limpio y animaciones suaves.
 
@@ -40,6 +41,7 @@ RUSHTRIP/
 │       ├── flights.py     # GET /flights/?origen=...&destino=...
 │       ├── hotels.py      # GET /hotels/?ciudad=...&checkin=...&checkout=...
 │       ├── weather.py     # GET /weather/?ciudad=...&fecha_inicio=...&fecha_fin=...
+│       ├── activities.py  # GET /activities/?ciudad=...&iata=...&limite=...
 │       └── plan.py        # POST /plan/  ← endpoint principal (acepta nombres de ciudad)
 ├── core/
 │   ├── config.py          # Settings con variables de entorno
@@ -54,6 +56,7 @@ RUSHTRIP/
 │   ├── cars.py            # Coches: RapidAPI → precios estimados (fallback)
 │   ├── airports.py        # Autocomplete de aeropuertos + aeropuertos alternativos
 │   ├── weather.py         # Clima: pronóstico Open-Meteo → clima típico histórico (fallback)
+│   ├── activities.py      # Actividades: OpenTripMap → selección curada local (fallback)
 │   └── plan.py            # Generador de plan de viaje + resolver_iata()
 ├── frontend/
 │   └── src/
@@ -110,6 +113,7 @@ PEXELS_API_KEY=tu_pexels_key
 - **Hotels.nl** — Registrate en [hotels.nl/api/register.php](https://hotels.nl/api/register.php) (20 segundos, gratis). 200 requests/día. Necesario para hoteles reales.
 - **Pexels** — Registrate en [pexels.com/api](https://pexels.com/api) (gratis, 200 req/hora). Para fotos de hoteles.
 - **RapidAPI** — Opcional si tenés quota disponible en [RapidAPI](https://rapidapi.com/DataCrawler/api/booking-com15). Usado solo para coches (datos via RapidAPI, sin afiliación directa con Booking.com).
+- **OpenTripMap** — Opcional. Registrate en [dev.opentripmap.org](https://dev.opentripmap.org) (gratis). Para actividades reales del destino; sin key se usa una selección curada.
 
 ### 3. Iniciar backend
 
@@ -139,9 +143,10 @@ El frontend arranca en `http://localhost:5173` con proxy automático al backend.
 | `TRAVELPAYOUTS_MARKER` | Sí | Marker de afiliado Aviasales para comisiones |
 | `HOTELSNL_API_KEY` | No* | API key de Hotels.nl para hoteles reales (200 req/día gratis) |
 | `PEXELS_API_KEY` | No* | API key de Pexels para fotos de hoteles (200 req/hora gratis) |
+| `OPENTRIPMAP_API_KEY` | No* | API key de OpenTripMap para actividades reales del destino (gratis) |
 | `CORS_ORIGINS` | No | Orígenes CORS separados por coma (default: `http://localhost:5173,http://127.0.0.1:5173`) |
 
-\* Sin `HOTELSNL_API_KEY` los hoteles se muestran como precios estimados. Sin `PEXELS_API_KEY` se usan placehold.co.
+\* Sin `HOTELSNL_API_KEY` los hoteles se muestran como precios estimados. Sin `PEXELS_API_KEY` se usan placehold.co. Sin `OPENTRIPMAP_API_KEY` las actividades son una selección curada por RushTrip.
 
 ---
 
@@ -269,6 +274,14 @@ Endpoint principal. Recibe **nombres de ciudad** (o códigos IATA), fechas y pre
     ],
     "precision": "tipico",
     "aviso": "Fechas lejanas: mostramos el clima típico de esos días según años anteriores."
+  },
+  "actividades": {
+    "ciudad": "Madrid",
+    "actividades": [
+      { "nombre": "Museo del Prado", "categoria": "Museo", "icono": "🏛️", "precio_estimado": 17.0, "gratis": false, "moneda": "USD", "descripcion": "Una de las pinacotecas más importantes del mundo: Velázquez, Goya, El Bosco.", "link_reserva": "https://klook.tpo.li/...", "link_klook": "https://klook.tpo.li/...", "link_kkday": "https://kkday.tpo.li/...", "fuente": "curado" }
+    ],
+    "precision": "estimada",
+    "aviso": "Selección curada por RushTrip. Precios orientativos por tipo de actividad. La reserva y el pago se realizan en sitios externos."
   },
   "aviso": null,
   "precision": "exacta"
@@ -489,6 +502,46 @@ Endpoint principal. Recibe **nombres de ciudad** (o códigos IATA), fechas y pre
 
 ---
 
+### `GET /activities/` — Mejores actividades del destino
+
+`GET /activities/?ciudad=Madrid&iata=MAD&limite=8`
+
+**Parámetros:**
+
+| Parámetro | Tipo | Default | Descripción |
+|-----------|------|---------|-------------|
+| `ciudad` | string | — | Nombre de la ciudad (ej: `Madrid`, `Bogotá`) |
+| `iata` | string | — | Código IATA del aeropuerto de destino (opcional, mejora la resolución) |
+| `limite` | int | `8` | Cantidad máxima de actividades (1-20) |
+
+**Response (200):**
+```json
+{
+  "ciudad": "Madrid",
+  "actividades": [
+    {
+      "nombre": "Museo del Prado",
+      "categoria": "Museo",
+      "icono": "🏛️",
+      "descripcion": "Una de las pinacotecas más importantes del mundo: Velázquez, Goya, El Bosco.",
+      "precio_estimado": 17.0,
+      "gratis": false,
+      "moneda": "USD",
+      "link_reserva": "https://klook.tpo.li/GBfSCVf0?dest=madrid",
+      "link_klook": "https://klook.tpo.li/GBfSCVf0?dest=madrid",
+      "link_kkday": "https://kkday.tpo.li/zHk5IFqZ?dest=madrid",
+      "fuente": "curado"
+    }
+  ],
+  "precision": "estimada",
+  "aviso": "Selección curada por RushTrip. Precios orientativos por tipo de actividad. La reserva y el pago se realizan en sitios externos."
+}
+```
+
+> **Nota:** Con `OPENTRIPMAP_API_KEY` configurada (gratis en [dev.opentripmap.org](https://dev.opentripmap.org)) devuelve puntos de interés reales ordenados por relevancia turística (`precision: "real"`, `fuente: "opentripmap"`). Sin key, o si la API falla sin cache disponible, degrada a una selección curada por RushTrip (`precision: "estimada"`). Los precios son **siempre orientativos** por tipo de actividad: la reserva y el pago se realizan en sitios externos (Klook/KKday), por lo que las actividades **no entran en el cálculo del presupuesto del plan**. El mismo objeto viene embebido en el campo `actividades` de la respuesta de `POST /plan/`.
+
+---
+
 ### `GET /min-budget/` — Presupuesto mínimo sugerido
 
 `GET /plan/min-budget/?origen=Bogotá&destino=Madrid&fecha_salida=2026-12-15&fecha_regreso=2026-12-22&pasajeros=1&incluir_hotel=true&incluir_vehiculo=false`
@@ -554,6 +607,7 @@ La API aplica límites diarios por IP (persisten en SQLite, sobreviven reinicios
 | `GET /cars/` | 100 requests |
 | `GET /airports/` | 100 requests |
 | `GET /weather/` | 100 requests |
+| `GET /activities/` | 100 requests |
 | Otros | 200 requests |
 
 Las respuestas incluyen headers `X-RateLimit-Remaining` y `X-RateLimit-Limit`. Los endpoints `/health`, `/`, `/docs` y `/openapi.json` no están limitados.
@@ -580,6 +634,7 @@ Las respuestas incluyen headers `X-RateLimit-Remaining` y `X-RateLimit-Limit`. L
 | Fotos hoteles | Pexels API | Placehold.co |
 | Resolución ciudad → IATA | Travelpayouts autocomplete | Cache local |
 | Clima | Open-Meteo pronóstico (≤16 días) | Clima típico histórico (3 años) → cache stale |
+| Actividades | OpenTripMap (POIs por relevancia) | Cache stale → selección curada por destino |
 
 ---
 
